@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1a1917">
+<title>AGY Mobile</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon-192.png" type="image/png">
+<style>
+  :root {
+    --bg: #1a1917;
+    --surface: #252420;
+    --surface2: #2f2d28;
+    --border: #3a3832;
+    --text: #eceae4;
+    --muted: #9e9b91;
+    --accent: #d97757;
+    --accent-dim: rgba(217, 119, 87, 0.16);
+    --user-bg: #2f2d28;
+    --danger: #e05252;
+    --ok: #5cb874;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+    overflow: hidden;
+  }
+  #app { display: flex; height: 100%; width: 100%; position: relative; }
+
+  /* Drawer / Sidebar */
+  #backdrop {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    z-index: 40; backdrop-filter: blur(2px);
+  }
+  #backdrop.open { display: block; }
+  #sidebar {
+    position: fixed; top: 0; bottom: 0; left: 0; width: 300px; max-width: 85vw;
+    background: #141311; border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; z-index: 50;
+    transform: translateX(-100%); transition: transform 0.22s ease;
+  }
+  #sidebar.open { transform: translateX(0); }
+  @media (min-width: 900px) {
+    #sidebar { position: relative; transform: none; flex-shrink: 0; }
+    #backdrop { display: none !important; }
+    #btnMenu { display: none !important; }
+  }
+  .sb-head {
+    padding: 14px 14px 10px; display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sb-logo { width: 28px; height: 28px; border-radius: 7px; object-fit: contain; }
+  .sb-title { font-weight: 600; font-size: 16px; flex: 1; }
+  .host-badge {
+    font-size: 11px; padding: 2px 7px; border-radius: 99px;
+    background: var(--accent-dim); color: var(--accent); font-weight: 600;
+  }
+  .sb-actions { padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+  .btn-primary {
+    background: var(--accent); color: #fff; border: none; border-radius: 10px;
+    padding: 10px 12px; font-size: 14px; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .btn-secondary {
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 10px; font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .sb-search {
+    margin: 0 12px 8px; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    font-size: 13px; outline: none;
+  }
+  .conv-list { flex: 1; overflow-y: auto; padding: 4px 8px 14px; }
+  .conv-group {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.05em; padding: 10px 8px 4px;
+  }
+  .conv-item {
+    padding: 10px 10px; border-radius: 9px; cursor: pointer; margin-bottom: 2px;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .conv-item:hover, .conv-item.active { background: var(--surface); }
+  .conv-item.active { border-left: 3px solid var(--accent); padding-left: 7px; }
+  .conv-title {
+    font-size: 13.5px; color: var(--text); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .conv-meta { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+  .sb-foot {
+    padding: 10px 12px; border-top: 1px solid var(--border);
+    display: flex; gap: 8px; align-items: center;
+  }
+
+  /* Main Area */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
+  #topbar {
+    height: 54px; padding: 0 10px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0; background: var(--bg);
+  }
+  .icon-btn {
+    width: 38px; height: 38px; border-radius: 10px; border: none;
+    background: transparent; color: var(--text); font-size: 20px;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .icon-btn:active { background: var(--surface); }
+  #chatTitle {
+    flex: 1; min-width: 0; font-size: 15px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #modelSelect {
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    border-radius: 99px; padding: 6px 10px; font-size: 12px; max-width: 150px;
+    outline: none;
+  }
+
+  /* Messages */
+  #messages {
+    flex: 1; overflow-y: auto; padding: 14px 12px 24px;
+    display: flex; flex-direction: column; gap: 14px;
+    scroll-behavior: smooth;
+  }
+  .empty-state {
+    margin: auto; text-align: center; max-width: 340px; padding: 24px;
+  }
+  .empty-state img { width: 58px; height: 58px; border-radius: 16px; margin-bottom: 12px; }
+  .empty-state h2 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
+  .empty-state p { margin: 0 0 18px; color: var(--muted); font-size: 14px; line-height: 1.45; }
+  .quick-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .chip {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    border-radius: 99px; padding: 8px 13px; font-size: 13px; cursor: pointer;
+  }
+  .chip:active { background: var(--surface2); }
+
+  .msg { display: flex; flex-direction: column; max-width: 820px; width: 100%; margin: 0 auto; }
+  .msg.user { align-items: flex-end; }
+  .msg.assistant { align-items: flex-start; }
+  .bubble {
+    padding: 11px 14px; border-radius: 16px; font-size: 15px; line-height: 1.52;
+    word-wrap: break-word; overflow-wrap: anywhere; max-width: 100%;
+  }
+  .msg.user .bubble {
+    background: var(--user-bg); border: 1px solid var(--border);
+    border-bottom-right-radius: 4px; max-width: 88%; white-space: pre-wrap;
+  }
+  .msg.assistant .bubble {
+    background: transparent; padding: 4px 2px; width: 100%;
+  }
+  .msg.assistant .bubble p { margin: 0 0 10px; }
+  .msg.assistant .bubble p:last-child { margin-bottom: 0; }
+  .msg.assistant .bubble pre {
+    background: #121110; border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; overflow-x: auto; font-size: 13px; line-height: 1.4;
+  }
+  .msg.assistant .bubble code {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    background: var(--surface); padding: 1px 5px; border-radius: 5px; font-size: 0.9em;
+  }
+  .msg.assistant .bubble pre code { background: none; padding: 0; }
+  .msg.assistant .bubble ul, .msg.assistant .bubble ol { margin: 4px 0 10px; padding-left: 20px; }
+  .msg.assistant .bubble a { color: var(--accent); }
+  .msg.assistant .bubble h1, .msg.assistant .bubble h2, .msg.assistant .bubble h3 {
+    margin: 12px 0 6px; font-size: 1.08em;
+  }
+  .tool-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .tool-pill {
+    font-size: 12px; color: var(--muted); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 99px; padding: 3px 10px;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .tool-pill.live { border-color: var(--accent); color: var(--accent); }
+  .msg-footer { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* Composer */
+  #composerWrap {
+    padding: 8px 10px calc(10px + var(--safe-bottom));
+    background: var(--bg); border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #attBar { display: none; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; max-width: 820px; margin-inline: auto; }
+  #attBar.has { display: flex; }
+  .att-chip {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 4px 8px; font-size: 12px; display: flex; align-items: center; gap: 6px;
+  }
+  .att-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 5px; }
+  .att-chip button { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; }
+  .rc-box {
+    margin: 0 12px 8px; padding: 8px 10px; border-radius: 9px;
+    background: var(--surface); border: 1px solid var(--border);
+    font-size: 12px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .rc-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .rc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .rc-dot.on { background: var(--ok); }
+  .host-pills { display: flex; gap: 6px; padding: 0 12px 8px; flex-wrap: wrap; }
+  .host-pill {
+    font-size: 12px; padding: 4px 9px; border-radius: 99px; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+  }
+  .host-pill.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  #composer {
+    max-width: 820px; margin: 0 auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 22px;
+    padding: 6px 8px; display: flex; align-items: flex-end; gap: 6px;
+  }
+  #composer:focus-within { border-color: #5c574d; }
+  #inputBox {
+    flex: 1; background: transparent; border: none; color: var(--text);
+    font-size: 15.5px; line-height: 1.4; max-height: 150px; min-height: 36px;
+    padding: 7px 4px; resize: none; outline: none; font-family: inherit;
+  }
+  .c-btn {
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0; font-size: 18px;
+    background: transparent; color: var(--muted);
+  }
+  .c-btn:active { background: var(--surface2); }
+  #btnMic { color: var(--text); background: var(--surface2); }
+  #btnMic.listening {
+    background: var(--danger); color: #fff;
+    animation: pulse 1.2s infinite;
+  }
+  #btnSend { background: var(--accent); color: #fff; }
+  #btnSend.stop { background: var(--danger); }
+  #btnSend:disabled { opacity: 0.45; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(224,82,82,0.65); }
+    70% { box-shadow: 0 0 0 12px rgba(224,82,82,0); }
+    100% { box-shadow: 0 0 0 0 rgba(224,82,82,0); }
+  }
+  #voiceHint {
+    max-width: 820px; margin: 4px auto 0; font-size: 12px; color: var(--accent);
+    min-height: 16px; text-align: center; display: none;
+  }
+  #voiceHint.show { display: block; }
+
+  /* Settings Modal */
+  #modal {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 100; align-items: center; justify-content: center; padding: 16px;
+  }
+  #modal.open { display: flex; }
+  .modal-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    width: 100%; max-width: 420px; padding: 18px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .modal-card h3 { margin: 0; font-size: 17px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  .field input {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    border-radius: 9px; padding: 10px; font-size: 14px; outline: none;
+  }
+  .check-row { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="backdrop" onclick="toggleSidebar(false)"></div>
+  <aside id="sidebar">
+    <div class="sb-head">
+      <img class="sb-logo" src="icon-192.png" alt="AGY" onerror="this.style.display='none'">
+      <span class="sb-title">AGY Mobile</span>
+      <span class="host-badge" id="hostBadge">LENOVO</span>
+    </div>
+    <div class="sb-actions">
+      <button class="btn-primary" onclick="startNewChat()">＋ Nowa rozmowa</button>
+      <button class="btn-secondary" onclick="startMemorySession()">🧠 Nowa sesja z pamięcią</button>
+    </div>
+    <div class="host-pills" id="hostPills"></div>
+    <div class="rc-box">
+      <div class="rc-row">
+        <span><span class="rc-dot" id="rcDot"></span> Remote Control</span>
+        <button class="btn-secondary" style="padding:3px 8px;font-size:11px" id="rcToggleBtn" onclick="toggleRemoteControl()">Start</button>
+      </div>
+      <div id="rcText" style="color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Sprawdzanie...</div>
+    </div>
+    <input id="searchConv" class="sb-search" type="search" placeholder="Szukaj sesji..." oninput="renderConvList()">
+    <div class="conv-list" id="convList"></div>
+    <div class="sb-foot">
+      <button class="btn-secondary" style="flex:1" onclick="openSettings()">⚙ Połączenie / Ustawienia</button>
+      <button class="btn-secondary" onclick="loadConversations()" title="Odśwież">↻</button>
+    </div>
+  </aside>
+
+  <main id="main">
+    <header id="topbar">
+      <button class="icon-btn" id="btnMenu" onclick="toggleSidebar(true)">☰</button>
+      <div id="chatTitle">Nowa rozmowa</div>
+      <select id="modelSelect" title="Model"></select>
+      <button class="icon-btn" onclick="startNewChat()" title="Nowa rozmowa">＋</button>
+    </header>
+
+    <section id="messages"></section>
+
+    <div id="composerWrap">
+      <div id="attBar"></div>
+      <div id="composer">
+        <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none" onchange="handleFileSelect(event)">
+        <input type="file" id="fileInput" accept="*/*" multiple style="display:none" onchange="handleFileSelect(event)">
+        <button class="c-btn" onclick="document.getElementById('photoInput').click()" title="Zrób zdjęcie">📷</button>
+        <button class="c-btn" onclick="document.getElementById('fileInput').click()" title="Dodaj plik lub zdjęcie z galerii">📎</button>
+        <textarea id="inputBox" rows="1" placeholder="Napisz lub podyktuj do AGY..." oninput="autoGrow(this)" onkeydown="handleKey(event)"></textarea>
+        <button class="c-btn" id="btnMic" onclick="toggleMic()" title="Dyktuj głosowo">🎙️</button>
+        <button class="c-btn" id="btnSend" onclick="onSendOrStop()" title="Wyślij">➤</button>
+      </div>
+      <div id="voiceHint"></div>
+    </div>
+  </main>
+</div>
+
+<div id="modal">
+  <div class="modal-card">
+    <h3>Połączenie z AGY Bridge</h3>
+    <div class="field">
+      <label>Adres serwera (puste = ten sam adres; na APK wpisz np. http://100.x.y.z:8765)</label>
+      <input id="cfgUrl" placeholder="http://100.x.y.z:8765">
+    </div>
+    <div class="field">
+      <label>Token dostępu</label>
+      <input id="cfgToken" placeholder="np. A1B2C3D4">
+    </div>
+    <div class="field">
+      <label>Katalog roboczy (CWD)</label>
+      <input id="cfgCwd" placeholder="C:\Users\Michał\Desktop\CLOUDE">
+    </div>
+    <label class="check-row">
+      <input type="checkbox" id="cfgAutoSend">
+      Automatycznie wyślij po zakończeniu dyktowania
+    </label>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeSettings()">Anuluj</button>
+      <button class="btn-primary" onclick="saveSettings()">Zapisz i połącz</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const MEMORY_START_PROMPT = `Start sesji na Lenovo (Michal / WAC). Odczytaj G:\\Mój dysk\\Claude\\PAMIEC\\memory\\antigravity\\START_ANTIGRAVITY.md oraz G:\\Mój dysk\\Claude\\PAMIEC\\memory\\MEMORY.md i potwierdz gotowosc po polsku (max 2 zdania).`;
+
+const state = {
+  baseUrl: localStorage.getItem('agy_base_url') || '',
+  token: localStorage.getItem('agy_token') || '',
+  cwd: localStorage.getItem('agy_cwd') || 'C:\\Users\\Michał\\Desktop\\CLOUDE',
+  model: localStorage.getItem('agy_model') || 'Gemini 4 Neon (Medium)',
+  autoSendVoice: localStorage.getItem('agy_auto_send') === '1',
+  conversations: [],
+  currentConvId: '',
+  messages: [],
+  attachments: [],
+  streaming: false,
+  abortController: null,
+  listening: false,
+  recognition: null,
+};
+
+// Pick token/server from URL query on first QR scan
+(function initFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const t = params.get('token');
+  const s = params.get('server');
+  if (t) { state.token = t; localStorage.setItem('agy_token', t); }
+  if (s) { state.baseUrl = s.replace(/\/+$/, ''); localStorage.setItem('agy_base_url', state.baseUrl); }
+  if (t || s) history.replaceState({}, '', location.pathname);
+})();
+
+function apiBase() { return state.baseUrl || ''; }
+function authHeaders(extra = {}) {
+  const h = { ...extra };
+  if (state.token) h['Authorization'] = 'Bearer ' + state.token;
+  return h;
+}
+
+function toggleSidebar(open) {
+  document.getElementById('sidebar').classList.toggle('open', open);
+  document.getElementById('backdrop').classList.toggle('open', open);
+}
+
+function openSettings() {
+  document.getElementById('cfgUrl').value = state.baseUrl;
+  document.getElementById('cfgToken').value = state.token;
+  document.getElementById('cfgCwd').value = state.cwd;
+  document.getElementById('cfgAutoSend').checked = state.autoSendVoice;
+  document.getElementById('modal').classList.add('open');
+}
+function closeSettings() { document.getElementById('modal').classList.remove('open'); }
+function saveSettings() {
+  state.baseUrl = document.getElementById('cfgUrl').value.trim().replace(/\/+$/, '');
+  state.token = document.getElementById('cfgToken').value.trim();
+  state.cwd = document.getElementById('cfgCwd').value.trim() || 'C:\\Users\\Michał\\Desktop\\CLOUDE';
+  state.autoSendVoice = document.getElementById('cfgAutoSend').checked;
+  localStorage.setItem('agy_base_url', state.baseUrl);
+  localStorage.setItem('agy_token', state.token);
+  localStorage.setItem('agy_cwd', state.cwd);
+  localStorage.setItem('agy_auto_send', state.autoSendVoice ? '1' : '0');
+  closeSettings();
+  bootstrap();
+}
+
+async function bootstrap() {
+  try {
+    const r = await fetch(apiBase() + '/api/info', { headers: authHeaders() });
+    if (r.status === 401) { openSettings(); return; }
+    const info = await r.json();
+    document.getElementById('hostBadge').textContent = info.host_label || 'LENOVO';
+    updateRemoteControlUi(info.remote_control_status || '');
+    renderHostPills(info.host_label || 'LENOVO');
+    const sel = document.getElementById('modelSelect');
+    sel.innerHTML = '';
+    (info.models || []).forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m.replace('Gemini ', 'G').replace('Claude ', '').replace(' (Medium)', ' Med').replace(' (High)', ' High').replace(' (Low)', ' Low');
+      if (m === state.model) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.onchange = () => { state.model = sel.value; localStorage.setItem('agy_model', state.model); };
+    await loadConversations();
+    renderMessages();
+  } catch (e) {
+    renderErrorBanner('Brak połączenia z AGY Bridge. Kliknij ☰ → Połączenie / Ustawienia.');
+  }
+}
+
+async function loadConversations() {
+  try {
+    const r = await fetch(apiBase() + '/api/conversations', { headers: authHeaders() });
+    if (!r.ok) return;
+    const data = await r.json();
+    state.conversations = data.conversations || [];
+    renderConvList();
+  } catch {}
+}
+
+function renderConvList() {
+  const q = (document.getElementById('searchConv').value || '').toLowerCase();
+  const list = document.getElementById('convList');
+  list.innerHTML = '';
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const yest = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const groups = { 'Dzisiaj': [], 'Wczoraj': [], 'Wcześniej': [] };
+
+  state.conversations.forEach(c => {
+    if (q && !(c.title + ' ' + c.preview).toLowerCase().includes(q)) return;
+    const d = (c.last_modified || '').slice(0, 10);
+    if (d === todayStr) groups['Dzisiaj'].push(c);
+    else if (d === yest) groups['Wczoraj'].push(c);
+    else groups['Wcześniej'].push(c);
+  });
+
+  Object.entries(groups).forEach(([label, arr]) => {
+    if (!arr.length) return;
+    const g = document.createElement('div');
+    g.className = 'conv-group';
+    g.textContent = label;
+    list.appendChild(g);
+    arr.forEach(c => {
+      const div = document.createElement('div');
+      div.className = 'conv-item' + (c.id === state.currentConvId ? ' active' : '');
+      div.onclick = () => selectConversation(c);
+      const t = document.createElement('div');
+      t.className = 'conv-title';
+      t.textContent = (c.running ? '● ' : '') + (c.title || c.id.slice(0, 8));
+      const m = document.createElement('div');
+      m.className = 'conv-meta';
+      const tm = (c.last_modified || '').slice(11, 16);
+      m.innerHTML = `<span>${c.step_count || 0} kroków</span><span>${tm}</span>`;
+      div.append(t, m);
+      list.appendChild(div);
+    });
+  });
+}
+
+async function selectConversation(conv) {
+  state.currentConvId = conv.id;
+  document.getElementById('chatTitle').textContent = conv.title || conv.id.slice(0, 8);
+  toggleSidebar(false);
+  renderConvList();
+  try {
+    const r = await fetch(apiBase() + `/api/conversations/${conv.id}/messages`, { headers: authHeaders() });
+    const data = await r.json();
+    state.messages = data.messages || [];
+    renderMessages();
+  } catch (e) {
+    renderErrorBanner('Nie udało się wczytać historii rozmowy.');
+  }
+}
+
+function startNewChat() {
+  state.currentConvId = '';
+  state.messages = [];
+  document.getElementById('chatTitle').textContent = 'Nowa rozmowa';
+  toggleSidebar(false);
+  renderConvList();
+  renderMessages();
+  document.getElementById('inputBox').focus();
+}
+
+function startMemorySession() {
+  startNewChat();
+  document.getElementById('inputBox').value = MEMORY_START_PROMPT;
+  sendMessage();
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderMarkdown(md) {
+  let html = escapeHtml(md || '');
+  html = html.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code.replace(/^\w*\n/, '')}</code></pre>`);
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>').replace(/<\/ul>\s*<ul>/g, '');
+  html = html.replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br>');
+  return '<p>' + html + '</p>';
+}
+
+function renderMessages() {
+  const box = document.getElementById('messages');
+  box.innerHTML = '';
+  if (!state.messages.length) {
+    box.innerHTML = `
+      <div class="empty-state">
+        <img src="icon-192.png" alt="AGY" onerror="this.style.display='none'">
+        <h2>Cześć Michał 👋</h2>
+        <p>Pisz lub dyktuj prosto do AGY na Lenovo. Masz dostęp do pamięci, dysku G:, Gmaila i pulpitu.</p>
+        <div class="quick-chips">
+          <button class="chip" onclick="quickSend('Sprawdź moje dzisiejsze maile w Gmailu')">📧 Sprawdź Gmail</button>
+          <button class="chip" onclick="quickSend('ss')">📸 Zrzut ekranu (ss)</button>
+          <button class="chip" onclick="startMemorySession()">🧠 Załaduj pamięć</button>
+        </div>
+      </div>`;
+    return;
+  }
+  state.messages.forEach(m => box.appendChild(buildMsgEl(m)));
+  box.scrollTop = box.scrollHeight;
+}
+
+function buildMsgEl(m) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + m.role;
+  if (m.tools && m.tools.length) {
+    const pills = document.createElement('div');
+    pills.className = 'tool-pills';
+    m.tools.forEach(t => {
+      const p = document.createElement('span');
+      p.className = 'tool-pill' + (t.live ? ' live' : '');
+      p.textContent = '⚙ ' + t.label;
+      pills.appendChild(p);
+    });
+    wrap.appendChild(pills);
+  }
+  const b = document.createElement('div');
+  b.className = 'bubble';
+  if (m.role === 'user') b.textContent = m.text;
+  else b.innerHTML = m.text ? renderMarkdown(m.text) : '<span style="color:var(--muted)">Myślę...</span>';
+  wrap.appendChild(b);
+
+  if (m.footer) {
+    const f = document.createElement('div');
+    f.className = 'msg-footer';
+    f.textContent = m.footer;
+    wrap.appendChild(f);
+  }
+  return wrap;
+}
+
+function renderErrorBanner(msg) {
+  const box = document.getElementById('messages');
+  const d = document.createElement('div');
+  d.style.cssText = 'background:rgba(224,82,82,0.15);border:1px solid var(--danger);padding:10px 14px;border-radius:10px;max-width:600px;margin:12px auto;font-size:13.5px;';
+  d.textContent = msg;
+  box.appendChild(d);
+}
+
+function quickSend(txt) {
+  document.getElementById('inputBox').value = txt;
+  sendMessage();
+}
+
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 900) {
+    e.preventDefault();
+    onSendOrStop();
+  }
+}
+
+async function handleFileSelect(ev) {
+  const files = Array.from(ev.target.files || []);
+  if (!files.length) return;
+  for (const file of files) {
+    const dataUrl = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(file);
+    });
+    try {
+      const r = await fetch(apiBase() + '/api/upload', {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ filename: file.name, data: dataUrl }),
+      });
+      const res = await r.json();
+      if (res.path) {
+        if (file.type && file.type.startsWith('image/')) res.preview = dataUrl;
+        state.attachments.push(res);
+        renderAttachments();
+      }
+    } catch {}
+  }
+  ev.target.value = '';
+}
+
+function renderAttachments() {
+  const bar = document.getElementById('attBar');
+  bar.innerHTML = '';
+  bar.classList.toggle('has', state.attachments.length > 0);
+  state.attachments.forEach((a, idx) => {
+    const c = document.createElement('span');
+    c.className = 'att-chip';
+    const thumb = a.preview ? `<img class="att-thumb" src="${a.preview}">` : '📎';
+    c.innerHTML = `${thumb} <span>${escapeHtml(a.filename)}</span> <button onclick="removeAtt(${idx})">×</button>`;
+    bar.appendChild(c);
+  });
+}
+
+let rcIsRunning = false;
+function updateRemoteControlUi(statusText) {
+  const low = (statusText || '').toLowerCase();
+  rcIsRunning = low.includes('running') && !low.includes('not running') && !low.includes('not registered');
+  document.getElementById('rcDot').classList.toggle('on', rcIsRunning);
+  document.getElementById('rcToggleBtn').textContent = rcIsRunning ? 'Stop' : 'Start';
+  document.getElementById('rcText').textContent = rcIsRunning ? 'Aktywny (antigravity.google.com)' : 'Wyłączony — kliknij Start';
+}
+
+async function toggleRemoteControl() {
+  const action = rcIsRunning ? 'stop' : 'start';
+  document.getElementById('rcText').textContent = action === 'start' ? 'Uruchamianie...' : 'Zatrzymywanie...';
+  try {
+    await fetch(apiBase() + '/api/remote-control', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ action }),
+    });
+    const r = await fetch(apiBase() + '/api/info', { headers: authHeaders() });
+    const info = await r.json();
+    updateRemoteControlUi(info.remote_control_status || '');
+  } catch {
+    document.getElementById('rcText').textContent = 'Błąd przełączania';
+  }
+}
+
+function renderHostPills(currentLabel) {
+  const hosts = JSON.parse(localStorage.getItem('agy_hosts') || '[]');
+  const box = document.getElementById('hostPills');
+  box.innerHTML = '';
+  const all = hosts.length ? hosts : [{ name: currentLabel, url: state.baseUrl, token: state.token }];
+  all.forEach(h => {
+    const b = document.createElement('button');
+    b.className = 'host-pill' + (h.url === state.baseUrl ? ' active' : '');
+    b.textContent = '💻 ' + h.name;
+    b.onclick = () => {
+      state.baseUrl = h.url || '';
+      if (h.token) state.token = h.token;
+      localStorage.setItem('agy_base_url', state.baseUrl);
+      localStorage.setItem('agy_token', state.token);
+      bootstrap();
+    };
+    box.appendChild(b);
+  });
+}
+function removeAtt(idx) { state.attachments.splice(idx, 1); renderAttachments(); }
+
+function onSendOrStop() {
+  if (state.streaming) stopGeneration();
+  else sendMessage();
+}
+
+async function stopGeneration() {
+  if (state.abortController) state.abortController.abort();
+  if (state.currentConvId) {
+    try {
+      await fetch(apiBase() + `/api/conversations/${state.currentConvId}/stop`, {
+        method: 'POST', headers: authHeaders()
+      });
+    } catch {}
+  }
+  setStreaming(false);
+}
+
+function setStreaming(val) {
+  state.streaming = val;
+  const btn = document.getElementById('btnSend');
+  btn.classList.toggle('stop', val);
+  btn.textContent = val ? '⏹' : '➤';
+}
+
+async function sendMessage() {
+  const box = document.getElementById('inputBox');
+  const text = box.value.trim();
+  if (!text && !state.attachments.length) return;
+  if (state.listening) toggleMic();
+
+  const atts = state.attachments.map(a => a.path);
+  state.attachments = [];
+  renderAttachments();
+  box.value = '';
+  autoGrow(box);
+
+  state.messages.push({ role: 'user', text: text + (atts.length ? `\n[Załączniki: ${atts.length}]` : '') });
+  const assistantMsg = { role: 'assistant', text: '', tools: [], footer: '' };
+  state.messages.push(assistantMsg);
+  renderMessages();
+
+  setStreaming(true);
+  state.abortController = new AbortController();
+
+  try {
+    const resp = await fetch(apiBase() + '/api/chat', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        conversation_id: state.currentConvId,
+        message: text,
+        model: state.model,
+        cwd: state.cwd,
+        attachments: atts,
+      }),
+      signal: state.abortController.signal,
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop() || '';
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith('data:')) continue;
+        try {
+          const ev = JSON.parse(line.slice(5).trim());
+          handleStreamEvent(ev, assistantMsg);
+        } catch {}
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      assistantMsg.text += `\n\n⚠ Błąd połączenia: ${e.message}`;
+      renderMessages();
+    }
+  } finally {
+    setStreaming(false);
+    loadConversations();
+  }
+}
+
+function handleStreamEvent(ev, msg) {
+  if (ev.conversation_id && !state.currentConvId) {
+    state.currentConvId = ev.conversation_id;
+    document.getElementById('chatTitle').textContent = state.messages[0]?.text?.slice(0, 40) || ev.conversation_id.slice(0, 8);
+  }
+  if (ev.type === 'text_delta') {
+    msg.text += ev.delta;
+    renderMessages();
+  } else if (ev.type === 'tool') {
+    const label = ev.tool_name || ev.step_type || 'narzędzie';
+    const existing = msg.tools.find(t => t.idx === ev.step_index && ev.step_index != null);
+    if (existing) {
+      existing.live = ev.state !== 'DONE';
+    } else {
+      msg.tools.push({ idx: ev.step_index, label, live: ev.state !== 'DONE' });
+    }
+    renderMessages();
+  } else if (ev.type === 'result') {
+    if (!msg.text && ev.response) msg.text = ev.response;
+    if (ev.error) msg.text += `\n\n⚠ ${ev.error}`;
+    msg.tools.forEach(t => t.live = false);
+    const sec = ev.duration_seconds ? ev.duration_seconds.toFixed(1) + 's' : '';
+    const tok = ev.usage?.total_tokens ? `${ev.usage.total_tokens} tok` : '';
+    msg.footer = [sec, tok].filter(Boolean).join(' · ');
+    renderMessages();
+  } else if (ev.type === 'error') {
+    msg.text += `\n\n⚠ ${ev.error}`;
+    renderMessages();
+  }
+}
+
+/* ===== VOICE DICTATION (Android Native Bridge + Web Speech API fallback) ===== */
+let voiceBaseText = '';
+
+function setVoiceUi(active, hint = '') {
+  state.listening = active;
+  document.getElementById('btnMic').classList.toggle('listening', active);
+  const h = document.getElementById('voiceHint');
+  h.textContent = hint;
+  h.classList.toggle('show', !!hint);
+}
+
+// Callbacks invoked by Android APK native SpeechRecognizer
+window.__androidVoicePartial = function(txt) {
+  const box = document.getElementById('inputBox');
+  box.value = (voiceBaseText ? voiceBaseText + ' ' : '') + txt;
+  autoGrow(box);
+  setVoiceUi(true, '🎙️ Słucham...');
+};
+window.__androidVoiceFinal = function(txt) {
+  const box = document.getElementById('inputBox');
+  if (txt) {
+    box.value = (voiceBaseText ? voiceBaseText + ' ' : '') + txt;
+    autoGrow(box);
+  }
+  setVoiceUi(false, '');
+  if (state.autoSendVoice && box.value.trim()) sendMessage();
+};
+window.__androidVoiceError = function(err) {
+  setVoiceUi(false, err ? '🎙️ ' + err : '');
+  setTimeout(() => setVoiceUi(false, ''), 2500);
+};
+
+function toggleMic() {
+  const box = document.getElementById('inputBox');
+  // 1. Native Android APK bridge (best reliability)
+  if (window.AndroidVoice) {
+    if (state.listening) {
+      window.AndroidVoice.stopListening();
+      setVoiceUi(false, '');
+    } else {
+      voiceBaseText = box.value.trim();
+      setVoiceUi(true, '🎙️ Słucham (Android)...');
+      window.AndroidVoice.startListening('pl-PL');
+    }
+    return;
+  }
+
+  // 2. Web Speech API fallback (Chrome / Edge / Android Chrome)
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    alert('Twoja przeglądarka nie obsługuje dyktowania Web Speech. Użyj mikrofonu na klawiaturze lub aplikacji AGY Mobile APK.');
+    return;
+  }
+  if (state.listening && state.recognition) {
+    state.recognition.stop();
+    setVoiceUi(false, '');
+    return;
+  }
+  voiceBaseText = box.value.trim();
+  const rec = new SR();
+  rec.lang = 'pl-PL';
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.onstart = () => setVoiceUi(true, '🎙️ Słucham... kliknij mikrofon aby zakończyć');
+  rec.onresult = (e) => {
+    let finalStr = '', interimStr = '';
+    for (let i = 0; i < e.results.length; i++) {
+      if (e.results[i].isFinal) finalStr += e.results[i][0].transcript + ' ';
+      else interimStr += e.results[i][0].transcript;
+    }
+    box.value = (voiceBaseText ? voiceBaseText + ' ' : '') + (finalStr + interimStr).trim();
+    autoGrow(box);
+  };
+  rec.onerror = (e) => setVoiceUi(false, '🎙️ Błąd mikrofonu: ' + e.error);
+  rec.onend = () => {
+    const wasListening = state.listening;
+    setVoiceUi(false, '');
+    if (wasListening && state.autoSendVoice && box.value.trim()) sendMessage();
+  };
+  state.recognition = rec;
+  rec.start();
+}
+
+bootstrap();
+</script>
+</body>
+</html>

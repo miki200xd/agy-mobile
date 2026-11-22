@@ -1,0 +1,32 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'pl.wac.agymobile'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "pl.wac.agymobile"
+        minSdk 26
+        targetSdk 34
+        versionCode (System.getenv("VERSION_CODE") ?: "1").toInteger()
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+}
