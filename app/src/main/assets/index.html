@@ -1394,6 +1394,26 @@ function toggleMic() {
 }
 
 bootstrap();
+
+// Live 2-way sync (Phone <-> Laptop) every 3s when idle
+setInterval(async () => {
+  if (state.streaming || state.historyRequest || document.hidden) return;
+  if (!state.currentConvId) return;
+  try {
+    const r = await fetch(apiBase() + `/api/conversations/${encodeURIComponent(state.currentConvId)}/messages`, { headers: authHeaders() });
+    if (!r.ok) return;
+    const data = await r.json();
+    const fresh = data.messages || [];
+    const lastOld = state.messages[state.messages.length - 1];
+    const lastNew = fresh[fresh.length - 1];
+    const changed = fresh.length !== state.messages.length
+      || (lastNew && (!lastOld || lastNew.text !== lastOld.text || lastNew.role !== lastOld.role));
+    if (changed && !state.streaming) {
+      state.messages = fresh;
+      renderMessages();
+    }
+  } catch {}
+}, 3000);
 </script>
 </body>
 </html>
