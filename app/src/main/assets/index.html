@@ -1414,6 +1414,34 @@ setInterval(async () => {
     }
   } catch {}
 }, 3000);
+
+// Swipe gesture: left->right opens sidebar, right->left closes sidebar
+(function initSwipeSidebar() {
+  let sx = 0, sy = 0, tracking = false;
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    if (e.target.closest('pre, code, input, textarea, select')) return;
+    sx = t.clientX;
+    sy = t.clientY;
+    tracking = true;
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!tracking || !e.changedTouches.length) return;
+    tracking = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx;
+    const dy = t.clientY - sy;
+    if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+    const sb = document.getElementById('sidebar');
+    const isOpen = sb.classList.contains('open');
+    if (dx > 0 && !isOpen && sx < window.innerWidth * 0.65) {
+      toggleSidebar(true);
+    } else if (dx < 0 && isOpen) {
+      toggleSidebar(false);
+    }
+  }, { passive: true });
+})();
 </script>
 </body>
 </html>
