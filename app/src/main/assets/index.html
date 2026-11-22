@@ -112,11 +112,66 @@
     flex: 1; min-width: 0; font-size: 15px; font-weight: 600;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  #modelSelect {
+  #modelPill {
     background: var(--surface); color: var(--text); border: 1px solid var(--border);
-    border-radius: 99px; padding: 6px 10px; font-size: 12px; max-width: 150px;
-    outline: none;
+    border-radius: 99px; padding: 6px 12px; font-size: 12.5px; font-weight: 500;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
+    white-space: nowrap; max-width: 175px;
   }
+  #modelPill .eff-tag { color: var(--accent); font-weight: 600; font-size: 11px; }
+
+  /* Update Banner */
+  #updateBar {
+    display: none; background: rgba(217,119,87,0.16); border-bottom: 1px solid var(--accent);
+    padding: 8px 12px; font-size: 12.5px; align-items: center; gap: 10px; flex-shrink: 0;
+  }
+  #updateBar.show { display: flex; }
+  #updateBar .u-txt { flex: 1; }
+  #updateProgressWrap { display: none; width: 100%; height: 4px; background: var(--surface2); border-radius: 99px; overflow: hidden; margin-top: 4px; }
+  #updateProgressFill { height: 100%; width: 0%; background: var(--accent); transition: width 0.2s; }
+
+  /* Limits Panel in Sidebar */
+  .limits-box {
+    margin: 0 12px 8px; padding: 9px 10px; border-radius: 9px;
+    background: var(--surface); border: 1px solid var(--border);
+    font-size: 11.5px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .lim-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: var(--text); }
+  .lim-row { display: flex; flex-direction: column; gap: 3px; }
+  .lim-label { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+  .lim-bar { height: 5px; border-radius: 99px; background: #141311; overflow: hidden; }
+  .lim-fill { height: 100%; border-radius: 99px; background: var(--accent); transition: width 0.3s; }
+  .lim-fill.cdx { background: #5cb874; }
+  .lim-fill.warn { background: #e0a040; }
+  .lim-fill.high { background: var(--danger); }
+
+  /* Model Picker Sheet */
+  #modelSheet {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    z-index: 95; align-items: flex-end; justify-content: center; padding: 12px;
+  }
+  #modelSheet.open { display: flex; }
+  .sheet-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+    width: 100%; max-width: 440px; padding: 16px; display: flex; flex-direction: column; gap: 14px;
+    margin-bottom: var(--safe-bottom);
+  }
+  .sheet-title { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .model-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .m-card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 11px; text-align: left; cursor: pointer; color: var(--text);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .m-card.active { border-color: var(--accent); background: var(--accent-dim); }
+  .m-card .m-name { font-size: 13.5px; font-weight: 600; }
+  .m-card .m-sub { font-size: 11px; color: var(--muted); }
+  .effort-seg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; background: var(--bg); padding: 4px; border-radius: 11px; border: 1px solid var(--border); }
+  .eff-btn {
+    border: none; background: transparent; color: var(--muted); border-radius: 8px;
+    padding: 8px 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .eff-btn.active { background: var(--accent); color: #fff; }
 
   /* Messages */
   #messages {
@@ -285,6 +340,7 @@
       </div>
       <div id="rcText" style="color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Sprawdzanie...</div>
     </div>
+    <div class="limits-box" id="limitsBox" style="display:none"></div>
     <input id="searchConv" class="sb-search" type="search" placeholder="Szukaj sesji..." oninput="renderConvList()">
     <div class="conv-list" id="convList"></div>
     <div class="sb-foot">
@@ -297,9 +353,16 @@
     <header id="topbar">
       <button class="icon-btn" id="btnMenu" onclick="toggleSidebar(true)">☰</button>
       <div id="chatTitle">Nowa rozmowa</div>
-      <select id="modelSelect" title="Model"></select>
+      <button id="modelPill" onclick="openModelSheet()"><span id="modelPillName">Neon</span><span class="eff-tag" id="modelPillEff">Med</span><span>▾</span></button>
       <button class="icon-btn" onclick="startNewChat()" title="Nowa rozmowa">＋</button>
     </header>
+    <div id="updateBar">
+      <div class="u-txt">
+        <div id="updateBarText">Dostępna aktualizacja</div>
+        <div id="updateProgressWrap"><div id="updateProgressFill"></div></div>
+      </div>
+      <button class="btn-primary" style="padding:6px 12px;font-size:12px" id="btnDoUpdate" onclick="triggerUpdate()">Aktualizuj</button>
+    </div>
 
     <section id="messages"></section>
 
@@ -348,6 +411,10 @@
       <input type="checkbox" id="cfgAutoSend">
       Automatycznie wyślij po zakończeniu dyktowania
     </label>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);padding-top:4px;border-top:1px solid var(--border)">
+      <span id="appVerInfo">Wersja: web</span>
+      <button class="btn-secondary" style="padding:5px 10px;font-size:12px" onclick="checkForUpdates(true)">↻ Sprawdź aktualizacje</button>
+    </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeSettings()">Anuluj</button>
       <button class="btn-primary" onclick="saveSettings()">Zapisz i połącz</button>
@@ -355,15 +422,41 @@
   </div>
 </div>
 
+<div id="modelSheet" onclick="if(event.target===this) closeModelSheet()">
+  <div class="sheet-card">
+    <div class="sheet-title">1. Wybierz model</div>
+    <div class="model-grid" id="modelGrid"></div>
+    <div class="sheet-title">2. Poziom rozumowania</div>
+    <div class="effort-seg" id="effortSeg">
+      <button class="eff-btn" data-eff="Low" onclick="pickEffort('Low')">Low</button>
+      <button class="eff-btn" data-eff="Medium" onclick="pickEffort('Medium')">Medium</button>
+      <button class="eff-btn" data-eff="High" onclick="pickEffort('High')">High</button>
+    </div>
+    <button class="btn-primary" onclick="closeModelSheet()">Gotowe</button>
+  </div>
+</div>
+
 <script>
 const MEMORY_START_PROMPT = `Start sesji na Lenovo (Michal / WAC). Odczytaj G:\\Mój dysk\\Claude\\PAMIEC\\memory\\antigravity\\START_ANTIGRAVITY.md oraz G:\\Mój dysk\\Claude\\PAMIEC\\memory\\MEMORY.md i potwierdz gotowosc po polsku (max 2 zdania).`;
+
+const MODEL_FAMILIES = [
+  { id: 'Gemini 4 Neon', short: 'Neon', sub: 'AGY · domyślny' },
+  { id: 'Gemini 4 Argon', short: 'Argon', sub: 'AGY · głęboka analiza' },
+  { id: 'Gemini 3.8 Flash', short: 'Flash', sub: 'AGY · ultraszybki' },
+  { id: 'Claude Sonnet 5.5', short: 'Sonnet 5.5', sub: 'AGY · Anthropic' },
+  { id: 'Claude Opus 5.5', short: 'Opus 5.5', sub: 'AGY · najmocniejszy' },
+  { id: 'Codex (gpt-6.2-sol)', short: 'Codex', sub: 'OpenAI · gpt-6.2-sol' },
+];
 
 const state = {
   baseUrl: localStorage.getItem('agy_base_url') || '',
   token: localStorage.getItem('agy_token') || '',
   cwd: localStorage.getItem('agy_cwd') || 'C:\\Users\\Michał\\Desktop\\CLOUDE',
-  model: localStorage.getItem('agy_model') || 'Gemini 4 Neon (Medium)',
+  modelFamily: localStorage.getItem('agy_model_family') || 'Gemini 4 Neon',
+  modelEffort: localStorage.getItem('agy_model_effort') || 'Medium',
+  model: 'Gemini 4 Neon (Medium)',
   autoSendVoice: localStorage.getItem('agy_auto_send') === '1',
+  pendingUpdateUrl: '',
   conversations: [],
   currentConvId: '',
   messages: [],
@@ -373,6 +466,47 @@ const state = {
   listening: false,
   recognition: null,
 };
+
+function syncFullModel() {
+  if (state.modelFamily.startsWith('Codex')) {
+    state.model = `Codex (gpt-6.2-sol ${state.modelEffort})`;
+  } else {
+    state.model = `${state.modelFamily} (${state.modelEffort})`;
+  }
+  const fam = MODEL_FAMILIES.find(f => f.id === state.modelFamily) || MODEL_FAMILIES[0];
+  const nEl = document.getElementById('modelPillName');
+  const eEl = document.getElementById('modelPillEff');
+  if (nEl) nEl.textContent = fam.short;
+  if (eEl) eEl.textContent = state.modelEffort === 'Medium' ? 'Med' : state.modelEffort;
+}
+
+function openModelSheet() {
+  const grid = document.getElementById('modelGrid');
+  grid.innerHTML = '';
+  MODEL_FAMILIES.forEach(f => {
+    const b = document.createElement('button');
+    b.className = 'm-card' + (f.id === state.modelFamily ? ' active' : '');
+    b.innerHTML = `<span class="m-name">${f.short}</span><span class="m-sub">${f.sub}</span>`;
+    b.onclick = () => {
+      state.modelFamily = f.id;
+      localStorage.setItem('agy_model_family', f.id);
+      syncFullModel();
+      openModelSheet();
+    };
+    grid.appendChild(b);
+  });
+  document.querySelectorAll('#effortSeg .eff-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.eff === state.modelEffort);
+  });
+  document.getElementById('modelSheet').classList.add('open');
+}
+function closeModelSheet() { document.getElementById('modelSheet').classList.remove('open'); }
+function pickEffort(eff) {
+  state.modelEffort = eff;
+  localStorage.setItem('agy_model_effort', eff);
+  syncFullModel();
+  openModelSheet();
+}
 
 // Pick token/server from URL query on first QR scan
 (function initFromUrl() {
@@ -424,23 +558,109 @@ async function bootstrap() {
     const info = await r.json();
     document.getElementById('hostBadge').textContent = info.host_label || 'LENOVO';
     updateRemoteControlUi(info.remote_control_status || '');
+    renderLimits(info.limits || {});
     renderHostPills(info.host_label || 'LENOVO');
-    const sel = document.getElementById('modelSelect');
-    sel.innerHTML = '';
-    (info.models || []).forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m;
-      opt.textContent = m.replace('Gemini ', 'G').replace('Claude ', '').replace(' (Medium)', ' Med').replace(' (High)', ' High').replace(' (Low)', ' Low');
-      if (m === state.model) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    sel.onchange = () => { state.model = sel.value; localStorage.setItem('agy_model', state.model); };
+    syncFullModel();
     await loadConversations();
     renderMessages();
+    checkForUpdates(false);
   } catch (e) {
     renderErrorBanner('Brak połączenia z AGY Bridge. Kliknij ☰ → Połączenie / Ustawienia.');
   }
 }
+
+function fmtEpoch(ep, withDay) {
+  if (!ep) return '';
+  const d = new Date(Number(ep) * 1000);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  if (!withDay) return `${hh}:${mm}`;
+  const dni = ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb'];
+  return `${dni[d.getDay()]} ${hh}:${mm}`;
+}
+
+function barClass(pct, isCdx) {
+  if (pct >= 85) return 'high';
+  if (pct >= 65) return 'warn';
+  return isCdx ? 'cdx' : '';
+}
+
+function renderLimits(lim) {
+  const box = document.getElementById('limitsBox');
+  if (!lim || (!lim.agy && !lim.codex)) { box.style.display = 'none'; return; }
+  box.style.display = 'flex';
+  let html = '<div class="lim-head"><span>Limity (AGY / ChatGPT)</span><button class="btn-secondary" style="padding:1px 6px;font-size:10px" onclick="refreshLimits()">↻</button></div>';
+  if (lim.agy) {
+    const g5 = Math.round(lim.agy.g5 || 0);
+    const gw = Math.round(lim.agy.gw || 0);
+    html += `<div class="lim-row"><div class="lim-label"><span>AGY 5h (${fmtEpoch(lim.agy.g5r, false)})</span><span>${g5}%</span></div><div class="lim-bar"><div class="lim-fill ${barClass(g5, false)}" style="width:${Math.min(100,g5)}%"></div></div></div>`;
+    html += `<div class="lim-row"><div class="lim-label"><span>AGY tydz. (${fmtEpoch(lim.agy.gwr, true)})</span><span>${gw}%</span></div><div class="lim-bar"><div class="lim-fill ${barClass(gw, false)}" style="width:${Math.min(100,gw)}%"></div></div></div>`;
+  }
+  if (lim.codex) {
+    const p5 = Math.round(lim.codex.p5 || 0);
+    const pw = Math.round(lim.codex.pw || 0);
+    html += `<div class="lim-row"><div class="lim-label"><span>Codex 5h (${fmtEpoch(lim.codex.r5, false)})</span><span>${p5}%</span></div><div class="lim-bar"><div class="lim-fill ${barClass(p5, true)}" style="width:${Math.min(100,p5)}%"></div></div></div>`;
+    html += `<div class="lim-row"><div class="lim-label"><span>Codex tydz. (${fmtEpoch(lim.codex.rw, true)})</span><span>${pw}%</span></div><div class="lim-bar"><div class="lim-fill ${barClass(pw, true)}" style="width:${Math.min(100,pw)}%"></div></div></div>`;
+  }
+  box.innerHTML = html;
+}
+
+async function refreshLimits() {
+  try {
+    const r = await fetch(apiBase() + '/api/limits', { headers: authHeaders() });
+    const d = await r.json();
+    renderLimits(d.limits || {});
+  } catch {}
+}
+
+async function checkForUpdates(manual) {
+  const isNative = !!(window.AndroidVoice && typeof window.AndroidVoice.getAppVersionCode === 'function');
+  const curCode = isNative ? window.AndroidVoice.getAppVersionCode() : 0;
+  const curName = isNative ? window.AndroidVoice.getAppVersionName() : 'web';
+  const verEl = document.getElementById('appVerInfo');
+  if (verEl) verEl.textContent = isNative ? `Wersja: v${curName} (build ${curCode})` : 'Tryb: przeglądarka';
+  if (!isNative && !manual) return;
+  try {
+    const r = await fetch('https://api.github.com/repos/miki200xd/agy-mobile/releases/latest');
+    if (!r.ok) return;
+    const rel = await r.json();
+    const tag = rel.tag_name || '';
+    const m = tag.match(/(\d+)$/);
+    const remoteCode = m ? parseInt(m[1], 10) : 0;
+    const asset = (rel.assets || []).find(a => a.name === 'AGY_Mobile.apk');
+    if (asset && remoteCode > curCode) {
+      state.pendingUpdateUrl = asset.browser_download_url;
+      document.getElementById('updateBarText').textContent = `Dostępna aktualizacja ${tag}`;
+      document.getElementById('updateBar').classList.add('show');
+    } else if (manual) {
+      alert(`Masz najnowszą wersję (${tag || 'v' + curName}).`);
+    }
+  } catch {
+    if (manual) alert('Nie udało się sprawdzić aktualizacji.');
+  }
+}
+
+function triggerUpdate() {
+  if (!state.pendingUpdateUrl) return;
+  if (window.AndroidVoice && typeof window.AndroidVoice.installUpdate === 'function') {
+    document.getElementById('updateProgressWrap').style.display = 'block';
+    document.getElementById('btnDoUpdate').disabled = true;
+    window.AndroidVoice.installUpdate(state.pendingUpdateUrl);
+  } else {
+    window.open(state.pendingUpdateUrl, '_blank');
+  }
+}
+
+window.__updateProgress = function(pct, text) {
+  document.getElementById('updateBar').classList.add('show');
+  document.getElementById('updateProgressWrap').style.display = 'block';
+  document.getElementById('updateProgressFill').style.width = pct + '%';
+  document.getElementById('updateBarText').textContent = text || `Pobieranie ${pct}%`;
+};
+window.__updateError = function(err) {
+  document.getElementById('btnDoUpdate').disabled = false;
+  document.getElementById('updateBarText').textContent = 'Błąd aktualizacji: ' + err;
+};
 
 async function loadConversations() {
   try {

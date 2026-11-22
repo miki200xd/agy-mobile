@@ -26,6 +26,10 @@ import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
@@ -214,6 +218,63 @@ public class MainActivity extends AppCompatActivity {
                     evalJs("window.__androidQrError && window.__androidQrError(" + JSONObject.quote(msg) + ")");
                 }
             });
+        }
+
+        @JavascriptInterface
+        public int getAppVersionCode() {
+            return BuildConfig.VERSION_CODE;
+        }
+
+        @JavascriptInterface
+        public String getAppVersionName() {
+            return BuildConfig.VERSION_NAME;
+        }
+
+        @JavascriptInterface
+        public void installUpdate(String apkUrl) {
+            new Thread(() -> {
+                try {
+                    evalJs("window.__updateProgress && window.__updateProgress(1, 'Pobieranie...')");
+                    File dir = new File(getCacheDir(), "update");
+                    if (!dir.exists()) dir.mkdirs();
+                    File apk = new File(dir, "AGY_Mobile.apk");
+
+                    URL url = new URL(apkUrl);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setInstanceFollowRedirects(true);
+                    conn.setConnectTimeout(15000);
+                    conn.setReadTimeout(30000);
+                    int total = conn.getContentLength();
+
+                    try (InputStream in = conn.getInputStream(); FileOutputStream out = new FileOutputStream(apk)) {
+                        byte[] buf = new byte[16384];
+                        long read = 0;
+                        int lastPct = 1;
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            out.write(buf, 0, n);
+                            read += n;
+                            if (total > 0) {
+                                int pct = (int) Math.min(99, (read * 100) / total);
+                                if (pct != lastPct) {
+                                    lastPct = pct;
+                                    evalJs("window.__updateProgress && window.__updateProgress(" + pct + ", 'Pobieranie " + pct + "%')");
+                                }
+                            }
+                        }
+                    }
+
+                    evalJs("window.__updateProgress && window.__updateProgress(100, 'Uruchamianie instalatora...')");
+                    Uri uri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".fileprovider", apk);
+                    Intent intent = new Intent(Intent.ACTION_VIEW);
+                    intent.setDataAndType(uri, "application/vnd.android.package-archive");
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                } catch (Exception e) {
+                    String msg = (e.getMessage() != null) ? e.getMessage() : "Błąd pobierania";
+                    evalJs("window.__updateError && window.__updateError(" + JSONObject.quote(msg) + ")");
+                }
+            }).start();
         }
     }
 
