@@ -290,7 +290,7 @@ public class MainActivity extends AppCompatActivity {
                     if (!"https".equals(url.getProtocol()) || !"github.com".equalsIgnoreCase(url.getHost())
                             || url.getUserInfo() != null || url.getPort() != -1
                             || !url.getPath().startsWith(releasePrefix) || !url.getPath().endsWith("/AGY_Mobile.apk")) {
-                        throw new IllegalArgumentException("Nieprawidłowy adres wydania AGY Mobile");
+                        throw new IllegalArgumentException("Nieprawidłowy adres wydania AIKO");
                     }
                     HttpURLConnection conn = openReleaseDownload(url);
                     try (InputStream in = conn.getInputStream(); FileOutputStream out = new FileOutputStream(apk)) {
@@ -318,7 +318,7 @@ public class MainActivity extends AppCompatActivity {
                     PackageInfo update = getPackageManager().getPackageArchiveInfo(apk.getPath(), 0);
                     if (update == null || !getPackageName().equals(update.packageName)
                             || update.versionCode <= BuildConfig.VERSION_CODE) {
-                        throw new IllegalStateException("Plik APK nie zawiera nowszej wersji AGY Mobile");
+                        throw new IllegalStateException("Plik APK nie zawiera nowszej wersji AIKO");
                     }
 
                     evalJs("window.__updateProgress && window.__updateProgress(100, 'Uruchamianie instalatora...')");
@@ -344,7 +344,7 @@ public class MainActivity extends AppCompatActivity {
                     || (!"github.com".equalsIgnoreCase(host)
                         && !"release-assets.githubusercontent.com".equalsIgnoreCase(host)
                         && !"objects.githubusercontent.com".equalsIgnoreCase(host))) {
-                throw new java.io.IOException("Nieprawidłowe przekierowanie wydania AGY Mobile");
+                throw new java.io.IOException("Nieprawidłowe przekierowanie wydania AIKO");
             }
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setInstanceFollowRedirects(false);

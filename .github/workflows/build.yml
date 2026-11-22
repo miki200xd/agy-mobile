@@ -1,4 +1,4 @@
-name: Build AGY Mobile APK
+name: Build AIKO APK
 
 on:
   push:
@@ -40,7 +40,7 @@ jobs:
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.${{ github.run_number }}
-          name: AGY Mobile v1.${{ github.run_number }}
+          tag_name: v2.${{ github.run_number }}
+          name: AIKO v2.${{ github.run_number }}
           files: AGY_Mobile.apk
           make_latest: true

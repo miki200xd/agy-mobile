@@ -14,7 +14,7 @@
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="AGY Mobile"
+        android:label="AIKO"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
