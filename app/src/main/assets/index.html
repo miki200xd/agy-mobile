@@ -953,13 +953,13 @@ function buildMsgEl(m) {
   const b = document.createElement('div');
   b.className = 'bubble';
   if (m.role === 'user') b.textContent = m.text;
-  else b.innerHTML = m.text ? renderMarkdown(m.text) : '<span style="color:var(--muted)">Myślę...</span>';
+  else b.innerHTML = m.text ? renderMarkdown(m.text) : `<span style="color:var(--muted)" class="live-think">${escapeHtml(m.liveStatus || 'Myślę...')}</span>`;
   wrap.appendChild(b);
 
-  if (m.footer) {
+  if (m.footer || m.liveFooter) {
     const f = document.createElement('div');
     f.className = 'msg-footer';
-    f.textContent = m.footer;
+    f.textContent = m.footer || m.liveFooter;
     wrap.appendChild(f);
   }
   return wrap;
@@ -1143,6 +1143,25 @@ function setStreaming(val) {
   btn.innerHTML = val ? SVG_STOP : SVG_SEND;
 }
 
+function fmtTok(n) {
+  if (!n) return '0';
+  return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+}
+
+function fmtUsageFooter(sec, usage, modelLabel) {
+  const parts = [];
+  if (sec != null) parts.push(`⏱ ${Number(sec).toFixed(1)}s`);
+  if (usage && (usage.total_tokens || usage.input_tokens || usage.output_tokens)) {
+    const tot = usage.total_tokens || ((usage.input_tokens || 0) + (usage.output_tokens || 0));
+    const detail = (usage.input_tokens || usage.output_tokens)
+      ? ` (wej ${fmtTok(usage.input_tokens)} / wyj ${fmtTok(usage.output_tokens)})`
+      : '';
+    parts.push(`~${fmtTok(tot)} tok${detail}`);
+  }
+  if (modelLabel) parts.push(modelLabel);
+  return parts.join(' · ');
+}
+
 async function sendMessage() {
   if (state.streaming || state.historyRequest) return;
   const box = document.getElementById('inputBox');
@@ -1160,12 +1179,26 @@ async function sendMessage() {
   autoGrow(box);
 
   state.messages.push({ role: 'user', text: text + (atts.length ? `\n[Załączniki: ${atts.length}]` : '') });
-  const assistantMsg = { role: 'assistant', text: '', tools: [], footer: '' };
+  const tStart = Date.now();
+  const assistantMsg = { role: 'assistant', text: '', tools: [], footer: '', liveStatus: '⏱ 0.0s · Myślę...', liveFooter: '⏱ 0.0s', _usage: null };
   state.messages.push(assistantMsg);
   renderMessages();
 
   setStreaming(true);
   state.abortController = new AbortController();
+  const timerId = setInterval(() => {
+    const sec = (Date.now() - tStart) / 1000;
+    assistantMsg.liveStatus = `⏱ ${sec.toFixed(1)}s · Myślę...`;
+    assistantMsg.liveFooter = fmtUsageFooter(sec, assistantMsg._usage, '');
+    const nodes = document.querySelectorAll('#messages .msg.assistant');
+    const last = nodes[nodes.length - 1];
+    if (last) {
+      const lt = last.querySelector('.live-think');
+      if (lt) lt.textContent = assistantMsg.liveStatus;
+      const ft = last.querySelector('.msg-footer');
+      if (ft && !assistantMsg.footer) ft.textContent = assistantMsg.liveFooter;
+    }
+  }, 150);
 
   try {
     const resp = await fetch(apiBase() + '/api/chat', {
@@ -1202,14 +1235,14 @@ async function sendMessage() {
         try {
           const ev = JSON.parse(line.slice(5).trim());
           if (ev.type === 'done') ended = true;
-          handleStreamEvent(ev, assistantMsg);
+          handleStreamEvent(ev, assistantMsg, tStart);
         } catch {}
       }
     }
     if (!ended) throw new Error('Strumień zakończył się przedwcześnie.');
   } catch (e) {
     if (e.name === 'AbortError') {
-      assistantMsg.footer = 'Zatrzymano';
+      assistantMsg.footer = `Zatrzymano · ⏱ ${((Date.now() - tStart) / 1000).toFixed(1)}s`;
       assistantMsg.tools.forEach(tool => tool.live = false);
       renderMessages();
     } else {
@@ -1217,13 +1250,19 @@ async function sendMessage() {
       renderMessages();
     }
   } finally {
+    clearInterval(timerId);
+    if (!assistantMsg.footer) {
+      assistantMsg.footer = fmtUsageFooter((Date.now() - tStart) / 1000, assistantMsg._usage, '');
+      renderMessages();
+    }
     state.abortController = null;
     setStreaming(false);
     loadConversations();
+    refreshLimits();
   }
 }
 
-function handleStreamEvent(ev, msg) {
+function handleStreamEvent(ev, msg, tStart) {
   if (ev.conversation_id && ev.conversation_id !== state.currentConvId && (ev.type === 'init' || !state.currentConvId)) {
     state.currentConvId = ev.conversation_id;
     document.getElementById('chatTitle').textContent = state.messages[0]?.text?.slice(0, 40) || ev.conversation_id.slice(0, 8);
@@ -1231,6 +1270,8 @@ function handleStreamEvent(ev, msg) {
   if (ev.type === 'text_delta') {
     msg.text += ev.delta;
     renderMessages();
+  } else if (ev.type === 'usage' && ev.usage) {
+    msg._usage = ev.usage;
   } else if (ev.type === 'tool') {
     const label = ev.tool_name || ev.step_type || 'narzędzie';
     const existing = msg.tools.find(t => t.idx === ev.step_index && ev.step_index != null);
@@ -1245,9 +1286,9 @@ function handleStreamEvent(ev, msg) {
     if (ev.response) msg.text = ev.response;
     if (ev.error) msg.text += `\n\n⚠ ${ev.error}`;
     msg.tools.forEach(t => t.live = false);
-    const sec = ev.duration_seconds ? ev.duration_seconds.toFixed(1) + 's' : '';
-    const tok = ev.usage?.total_tokens ? `${ev.usage.total_tokens} tok` : '';
-    msg.footer = [sec, tok].filter(Boolean).join(' · ');
+    const sec = ev.duration_seconds || ((Date.now() - (tStart || Date.now())) / 1000);
+    const u = ev.usage && (ev.usage.total_tokens || ev.usage.input_tokens) ? ev.usage : msg._usage;
+    msg.footer = fmtUsageFooter(sec, u, ev.model || '');
     renderMessages();
   } else if (ev.type === 'error') {
     msg.text += `\n\n⚠ ${ev.error}`;
