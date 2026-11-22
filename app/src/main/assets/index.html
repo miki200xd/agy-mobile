@@ -55,7 +55,7 @@
     padding: 14px 14px 10px; display: flex; align-items: center; gap: 10px;
     border-bottom: 1px solid var(--border);
   }
-  .sb-logo { width: 28px; height: 28px; border-radius: 7px; object-fit: contain; }
+  .sb-logo { width: 40px; height: 40px; border-radius: 10px; object-fit: contain; }
   .sb-title { font-weight: 600; font-size: 16px; flex: 1; }
   .host-badge {
     font-size: 11px; padding: 2px 7px; border-radius: 99px;
@@ -130,13 +130,22 @@
     white-space: nowrap; max-width: 175px;
   }
   #modelPill .eff-tag { color: var(--accent); font-weight: 600; font-size: 11px; }
-  #coopBtn {
+  .bubble pre { position: relative; }
+  .copy-btn { cursor: pointer; font-size: 12px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border, #444);
+    background: var(--surface, #2a2826); color: inherit; opacity: .85; }
+  .copy-btn:hover { opacity: 1; }
+  .bubble pre .copy-btn { position: absolute; top: 6px; right: 6px; }
+  .bubble code.copyable { cursor: copy; }
+  .msg-actions { margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .chat-img { max-width: 100%; max-height: 420px; border-radius: 10px; margin: 6px 0; display: block; cursor: zoom-in; background: #fff; }
+  .bubble a { color: #7cb7ff; text-decoration: underline; cursor: pointer; }
+  #certainBtn, #coopBtn {
     background: var(--surface); color: var(--muted); border: 1px solid var(--border);
     border-radius: 99px; padding: 6px 10px; font-size: 12px; font-weight: 600;
     cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
     white-space: nowrap; transition: background 0.15s, border-color 0.15s, color 0.15s;
   }
-  #coopBtn.active {
+  #certainBtn.active, #coopBtn.active {
     background: rgba(92,184,116,0.18); border-color: var(--ok); color: #7cd694;
   }
   #queueBar {
@@ -226,7 +235,7 @@
   .empty-state {
     margin: auto; text-align: center; max-width: 340px; padding: 24px;
   }
-  .empty-state img { width: 58px; height: 58px; border-radius: 16px; margin-bottom: 12px; }
+  .empty-state img { width: 88px; height: 88px; border-radius: 22px; margin-bottom: 12px; }
   .empty-state h2 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
   .empty-state p { margin: 0 0 18px; color: var(--muted); font-size: 14px; line-height: 1.45; }
   .quick-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
@@ -410,6 +419,7 @@
       <button class="icon-btn" id="btnMenu" onclick="toggleSidebar(true)">☰</button>
       <div id="chatTitle">Nowa rozmowa</div>
       <button id="modelPill" onclick="openModelSheet()"><span id="modelPillName">Neon</span><span class="eff-tag" id="modelPillEff">Med</span><span>▾</span></button>
+      <button id="certainBtn" onclick="toggleCertain()" title="Recenzja pewna: partnerzy oceniają odpowiedź, prowadzący ją poprawia (do 3 rund, więcej zużycia limitu)">🛡 Pewna</button>
       <button id="coopBtn" onclick="openCoopSettings()" title="Ustaw skład zespołu" aria-haspopup="dialog">🤝 Solo</button>
       <button class="icon-btn" onclick="openOnLaptop()" title="Otwórz w PowerShellu na laptopie" aria-label="Otwórz w PowerShellu">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
@@ -543,9 +553,9 @@ const state = {
   baseUrl: localStorage.getItem('agy_base_url') || '',
   token: localStorage.getItem('agy_token') || '',
   cwd: localStorage.getItem('agy_cwd') || 'C:\\Users\\Michał\\Desktop\\CLOUDE',
-  modelProvider: localStorage.getItem('agy_model_prov') || 'gemini',
-  modelFamily: localStorage.getItem('agy_model_family') || 'Gemini 4 Neon',
-  modelEffort: localStorage.getItem('agy_model_effort') || 'Medium',
+  modelProvider: localStorage.getItem('agy_model_prov') || 'auto',
+  modelFamily: localStorage.getItem('agy_model_family') || 'Auto',
+  modelEffort: localStorage.getItem('agy_model_effort') || 'Auto',
   model: 'Gemini 4 Neon (Medium)',
   autoSendVoice: localStorage.getItem('agy_auto_send') === '1',
   pendingUpdateUrl: '',
@@ -558,6 +568,7 @@ const state = {
   streaming: false,
   manualStop: false,
   partners: readTeamSelection(),
+  certain: localStorage.getItem('aiko_certain') === '1',
   messageQueue: [],
   abortController: null,
   listening: false,
@@ -580,6 +591,17 @@ function engineForModel(model) {
   return 'AGY';
 }
 
+function toggleCertain() {
+  state.certain = !state.certain;
+  localStorage.setItem('aiko_certain', state.certain ? '1' : '0');
+  renderCertain();
+}
+
+function renderCertain() {
+  const b = document.getElementById('certainBtn');
+  if (b) b.classList.toggle('active', !!state.certain);
+}
+
 function teamValidation(partners) {
   const engines = partners.map(engineForModel);
   if (new Set(engines).size !== engines.length || engines.includes(engineForModel(state.model))) {
@@ -592,6 +614,7 @@ function syncCoopUi() {
   const btn = document.getElementById('coopBtn');
   btn.classList.toggle('active', state.partners.length > 0);
   btn.textContent = state.partners.length ? `🤝 ${state.partners.length + 1}×` : '🤝 Solo';
+  renderCertain();
 }
 
 function openCoopSettings() {
@@ -1072,8 +1095,15 @@ function renderMarkdown(md) {
   let html = escapeHtml((md || '').replace(/[\u0001\u0002]/g, ''));
   html = html.replace(/```([\s\S]*?)```/g, (_, code) => preserve('<pre><code>' + code.replace(/^\w*\n/, '') + '</code></pre>'));
   html = html.replace(/`([^`]+)`/g, (_, code) => preserve('<code>' + code + '</code>'));
+  html = html.replace(/!\[([^\]]*)\]\(([^)\n]+)\)/g, (_, alt, src) => {
+    src = src.trim();
+    const web = /^https?:\/\//i.test(src);
+    return preserve('<img class="chat-img" alt="' + alt + '" ' + (web ? 'src="' + src + '" referrerpolicy="no-referrer"' : 'data-local="' + src + '"') + '>');
+  });
   html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, label, url) =>
-    preserve('<a href="' + url + '" rel="noopener noreferrer">' + label + '</a>'));
+    preserve('<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + label + '</a>'));
+  html = html.replace(/(^|[\s(>])(https?:\/\/[^\s<)\u0001]+[^\s<).,;:!?\u0001])/g, (_, lead, url) =>
+    lead + preserve('<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + '</a>'));
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
@@ -1105,6 +1135,63 @@ function renderMessages() {
   box.scrollTop = box.scrollHeight;
 }
 
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch {}
+    ta.remove();
+  }
+  if (btn) {
+    const old = btn.textContent;
+    btn.textContent = '✓ Skopiowano';
+    setTimeout(() => { btn.textContent = old; }, 1400);
+  }
+}
+
+function makeCopyBtn(label, getText) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'copy-btn';
+  b.textContent = label;
+  b.title = 'Kopiuj do schowka';
+  b.onclick = (e) => { e.stopPropagation(); copyText(getText(), b); };
+  return b;
+}
+
+async function loadLocalImages(bubble) {
+  for (const img of bubble.querySelectorAll('img[data-local]')) {
+    const path = img.getAttribute('data-local').replace(/&amp;/g, '&');
+    img.removeAttribute('data-local');
+    try {
+      const r = await fetch(apiBase() + '/api/file?path=' + encodeURIComponent(path), { headers: authHeaders() });
+      if (!r.ok) throw new Error(String(r.status));
+      const url = URL.createObjectURL(await r.blob());
+      img.src = url;
+      img.onclick = () => window.open(url, '_blank');
+    } catch {
+      img.replaceWith(Object.assign(document.createElement('span'), { textContent: '🖼 [nie udało się wczytać obrazu: ' + path + ']' }));
+    }
+  }
+}
+
+function decorateBubble(bubble) {
+  loadLocalImages(bubble);
+  bubble.querySelectorAll('pre').forEach(pre => {
+    const code = pre.querySelector('code');
+    pre.appendChild(makeCopyBtn('📋', () => (code || pre).innerText.replace(/\n$/, '')));
+  });
+  bubble.querySelectorAll('code').forEach(c => {
+    if (c.closest('pre')) return;
+    c.classList.add('copyable');
+    c.title = 'Kliknij, aby skopiować';
+    c.onclick = () => copyText(c.innerText, null);
+  });
+}
+
 function buildMsgEl(m) {
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + m.role;
@@ -1123,6 +1210,7 @@ function buildMsgEl(m) {
   b.className = 'bubble';
   if (m.role === 'user') b.textContent = m.text;
   else b.innerHTML = m.text ? renderMarkdown(m.text) : `<span style="color:var(--muted)" class="live-think">${escapeHtml(m.liveStatus || 'Myślę...')}</span>`;
+  if (m.role !== 'user' && m.text) decorateBubble(b);
   wrap.appendChild(b);
 
   if (m.footer || m.liveFooter) {
@@ -1151,7 +1239,13 @@ function buildMsgEl(m) {
       feedback.appendChild(button);
     }
     feedback.appendChild(status);
+    if (m.role !== 'user' && m.text) feedback.insertBefore(makeCopyBtn('📋 Kopiuj odpowiedź', () => m.text), feedback.firstChild);
     wrap.appendChild(feedback);
+  } else if (m.role !== 'user' && m.text) {
+    const actions = document.createElement('div');
+    actions.className = 'msg-actions';
+    actions.appendChild(makeCopyBtn('📋 Kopiuj odpowiedź', () => m.text));
+    wrap.appendChild(actions);
   }
   return wrap;
 }
@@ -1269,6 +1363,11 @@ async function compressImageIfNeeded(file, dataUrl) {
 async function handleFileSelect(ev) {
   const files = Array.from(ev.target.files || []);
   if (!files.length) return;
+  await uploadFiles(files);
+  ev.target.value = '';
+}
+
+async function uploadFiles(files) {
   for (const file of files) {
     let dataUrl = await new Promise((resolve) => {
       const reader = new FileReader();
@@ -1290,8 +1389,28 @@ async function handleFileSelect(ev) {
       }
     } catch {}
   }
-  ev.target.value = '';
 }
+
+document.addEventListener('paste', (e) => {
+  const items = Array.from(e.clipboardData?.items || []);
+  const images = items.filter(i => i.kind === 'file' && i.type.startsWith('image/')).map(i => i.getAsFile()).filter(Boolean);
+  if (!images.length) return;
+  e.preventDefault();
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  uploadFiles(images.map((f, n) => new File([f], `wklejone-${stamp}-${n + 1}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: f.type })));
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'F11') return;
+  e.preventDefault();
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.toggle_fullscreen) {
+    window.pywebview.api.toggle_fullscreen();
+  } else if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen();
+  }
+});
 
 function renderAttachments() {
   const bar = document.getElementById('attBar');
@@ -1580,6 +1699,7 @@ async function sendMessage(queuedItem = null) {
         message: text,
         model: useModel,
         partners,
+        certain: !!state.certain,
         cwd: queuedItem?.cwd || state.conversationCwd || state.cwd,
         attachments: atts,
       }),
