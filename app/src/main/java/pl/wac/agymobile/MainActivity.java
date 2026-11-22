@@ -23,6 +23,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.google.mlkit.vision.barcode.common.Barcode;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
+
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -161,6 +166,31 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void stopListening() {
             stopNativeSpeech();
+        }
+
+        @JavascriptInterface
+        public void scanQr() {
+            runOnUiThread(() -> {
+                try {
+                    GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
+                            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                            .enableAutoZoom()
+                            .build();
+                    GmsBarcodeScanner scanner = GmsBarcodeScanning.getClient(MainActivity.this, options);
+                    scanner.startScan()
+                            .addOnSuccessListener(barcode -> {
+                                String raw = barcode.getRawValue();
+                                evalJs("window.__androidQrResult && window.__androidQrResult(" + JSONObject.quote(raw != null ? raw : "") + ")");
+                            })
+                            .addOnFailureListener(e -> {
+                                String msg = (e != null && e.getMessage() != null) ? e.getMessage() : "Nie udało się uruchomić skanera QR";
+                                evalJs("window.__androidQrError && window.__androidQrError(" + JSONObject.quote(msg) + ")");
+                            });
+                } catch (Exception e) {
+                    String msg = (e.getMessage() != null) ? e.getMessage() : "Błąd skanera QR";
+                    evalJs("window.__androidQrError && window.__androidQrError(" + JSONObject.quote(msg) + ")");
+                }
+            });
         }
     }
 

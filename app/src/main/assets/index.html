@@ -320,6 +320,8 @@
 <div id="modal">
   <div class="modal-card">
     <h3>Połączenie z AGY Bridge</h3>
+    <button class="btn-primary" id="btnScanQr" onclick="startQrScan()" style="width:100%">📷 Skanuj kod QR z laptopa</button>
+    <div id="qrStatus" style="font-size:12px;color:var(--muted);display:none"></div>
     <div class="field">
       <label>Adres serwera (puste = ten sam adres; na APK wpisz np. http://100.x.y.z:8765)</label>
       <input id="cfgUrl" placeholder="http://100.x.y.z:8765">
@@ -582,10 +584,49 @@ function buildMsgEl(m) {
 function renderErrorBanner(msg) {
   const box = document.getElementById('messages');
   const d = document.createElement('div');
-  d.style.cssText = 'background:rgba(224,82,82,0.15);border:1px solid var(--danger);padding:10px 14px;border-radius:10px;max-width:600px;margin:12px auto;font-size:13.5px;';
-  d.textContent = msg;
+  d.style.cssText = 'background:rgba(224,82,82,0.15);border:1px solid var(--danger);padding:12px 14px;border-radius:12px;max-width:600px;margin:12px auto;font-size:13.5px;display:flex;flex-direction:column;gap:10px;';
+  d.innerHTML = `<div>${escapeHtml(msg)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-primary" onclick="startQrScan()">📷 Skanuj kod QR z laptopa</button><button class="btn-secondary" onclick="openSettings()">⚙ Wpisz ręcznie</button></div>`;
   box.appendChild(d);
 }
+
+function startQrScan() {
+  const st = document.getElementById('qrStatus');
+  if (window.AndroidVoice && typeof window.AndroidVoice.scanQr === 'function') {
+    if (st) { st.style.display = 'block'; st.textContent = 'Uruchamianie skanera QR...'; }
+    window.AndroidVoice.scanQr();
+  } else {
+    alert('Skaner QR działa w aplikacji Android AGY Mobile (v1.1+). W przeglądarce po prostu zeskanuj QR aparatem telefonu.');
+  }
+}
+
+window.__androidQrResult = function(raw) {
+  const st = document.getElementById('qrStatus');
+  if (!raw) return;
+  try {
+    const u = new URL(raw.trim());
+    const base = u.origin;
+    const tok = u.searchParams.get('token') || '';
+    state.baseUrl = base;
+    if (tok) state.token = tok;
+    localStorage.setItem('agy_base_url', state.baseUrl);
+    if (tok) localStorage.setItem('agy_token', state.token);
+    const urlEl = document.getElementById('cfgUrl');
+    const tokEl = document.getElementById('cfgToken');
+    if (urlEl) urlEl.value = state.baseUrl;
+    if (tokEl && tok) tokEl.value = state.token;
+    if (st) { st.style.display = 'block'; st.textContent = 'Połączono z ' + base; }
+    closeSettings();
+    bootstrap();
+  } catch (e) {
+    if (st) { st.style.display = 'block'; st.textContent = 'Nieprawidłowy kod QR: ' + raw; }
+    alert('Zeskanowany kod nie jest adresem AGY Bridge:\n' + raw);
+  }
+};
+
+window.__androidQrError = function(err) {
+  const st = document.getElementById('qrStatus');
+  if (st) { st.style.display = 'block'; st.textContent = 'Błąd skanera: ' + err; }
+};
 
 function quickSend(txt) {
   document.getElementById('inputBox').value = txt;
