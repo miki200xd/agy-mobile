@@ -166,10 +166,10 @@
     margin-bottom: var(--safe-bottom);
   }
   .sheet-title { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
-  .prov-seg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; background: var(--bg); padding: 4px; border-radius: 12px; border: 1px solid var(--border); }
+  .prov-seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; background: var(--bg); padding: 4px; border-radius: 12px; border: 1px solid var(--border); }
   .prov-btn {
     border: none; background: transparent; color: var(--muted); border-radius: 9px;
-    padding: 9px 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+    padding: 9px 4px; font-size: 12px; font-weight: 600; cursor: pointer;
   }
   .prov-btn.active { background: var(--surface2); color: var(--text); border: 1px solid var(--accent); }
   .model-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 220px; overflow-y: auto; }
@@ -444,6 +444,7 @@
   <div class="sheet-card">
     <div class="sheet-title">1. Wybierz silnik</div>
     <div class="prov-seg" id="provSeg">
+      <button class="prov-btn" data-prov="auto" onclick="pickProvider('auto')">⚡ Auto</button>
       <button class="prov-btn" data-prov="gemini" onclick="pickProvider('gemini')">Gemini</button>
       <button class="prov-btn" data-prov="claude" onclick="pickProvider('claude')">Claude</button>
       <button class="prov-btn" data-prov="codex" onclick="pickProvider('codex')">ChatGPT</button>
@@ -490,6 +491,9 @@ const state = {
 };
 
 function getActiveFamily() {
+  if (state.modelProvider === 'auto' || state.modelFamily === 'Auto') {
+    return { id: 'Auto', prov: 'auto', short: '⚡ Auto', sub: 'Dobiera silnik wg zadania i szybszego resetu limitu (fallback na AGY)', efforts: ['Auto'] };
+  }
   return MODEL_FAMILIES.find(f => f.id === state.modelFamily) || MODEL_FAMILIES[0];
 }
 
@@ -500,16 +504,23 @@ function syncFullModel() {
   const effs = fam.efforts || ['Low', 'Medium', 'High'];
   const match = effs.find(e => e.toLowerCase() === (state.modelEffort || '').toLowerCase());
   state.modelEffort = match || (effs.find(e => e.toLowerCase() === 'medium') || effs[0]);
-  state.model = `${fam.id} (${state.modelEffort})`;
+  state.model = fam.id === 'Auto' ? 'Auto' : `${fam.id} (${state.modelEffort})`;
   const nEl = document.getElementById('modelPillName');
   const eEl = document.getElementById('modelPillEff');
   if (nEl) nEl.textContent = fam.short;
-  if (eEl) eEl.textContent = state.modelEffort.toLowerCase() === 'medium' ? 'Med' : state.modelEffort;
+  if (eEl) eEl.textContent = fam.id === 'Auto' ? 'Router' : (state.modelEffort.toLowerCase() === 'medium' ? 'Med' : state.modelEffort);
 }
 
 function pickProvider(prov) {
   state.modelProvider = prov;
   localStorage.setItem('agy_model_prov', prov);
+  if (prov === 'auto') {
+    state.modelFamily = 'Auto';
+    localStorage.setItem('agy_model_family', 'Auto');
+    syncFullModel();
+    openModelSheet();
+    return;
+  }
   const first = MODEL_FAMILIES.find(f => f.prov === prov);
   if (first && !MODEL_FAMILIES.some(f => f.id === state.modelFamily && f.prov === prov)) {
     state.modelFamily = first.id;
@@ -525,9 +536,13 @@ function openModelSheet() {
   });
   const grid = document.getElementById('modelGrid');
   grid.innerHTML = '';
-  MODEL_FAMILIES.filter(f => f.prov === state.modelProvider).forEach(f => {
+  const list = state.modelProvider === 'auto'
+    ? [getActiveFamily()]
+    : MODEL_FAMILIES.filter(f => f.prov === state.modelProvider);
+  list.forEach(f => {
     const b = document.createElement('button');
     b.className = 'm-card' + (f.id === state.modelFamily ? ' active' : '');
+    if (state.modelProvider === 'auto') b.style.gridColumn = '1 / -1';
     b.innerHTML = `<span class="m-name">${f.short}</span><span class="m-sub">${f.sub}</span>`;
     b.onclick = () => {
       state.modelFamily = f.id;
