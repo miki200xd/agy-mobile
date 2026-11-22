@@ -230,6 +230,36 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public class VoiceBridge {
+        private boolean isSettingsKey(String key) {
+            if (key == null) return false;
+            switch (key) {
+                case "agy_base_url":
+                case "agy_token":
+                case "agy_cwd":
+                case "agy_model_prov":
+                case "agy_model_family":
+                case "agy_model_effort":
+                case "agy_auto_send":
+                case "aiko_certain":
+                case "kiko_partners":
+                case "agy_hosts":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        @JavascriptInterface
+        public String getPref(String key) {
+            if (!isSettingsKey(key)) return null;
+            return getSharedPreferences("aiko_settings", MODE_PRIVATE).getString(key, null);
+        }
+
+        @JavascriptInterface
+        public void savePref(String key, String value) {
+            if (!isSettingsKey(key) || value == null) return;
+            getSharedPreferences("aiko_settings", MODE_PRIVATE).edit().putString(key, value).apply();
+        }
         @JavascriptInterface
         public void startListening(String lang) {
             runOnUiThread(() -> startNativeSpeech((lang == null || lang.isEmpty()) ? "pl-PL" : lang));
