@@ -172,7 +172,7 @@
     padding: 9px 6px; font-size: 13px; font-weight: 600; cursor: pointer;
   }
   .prov-btn.active { background: var(--surface2); color: var(--text); border: 1px solid var(--accent); }
-  .model-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .model-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 220px; overflow-y: auto; }
   .m-card {
     background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
     padding: 10px 11px; text-align: left; cursor: pointer; color: var(--text);
@@ -181,10 +181,10 @@
   .m-card.active { border-color: var(--accent); background: var(--accent-dim); }
   .m-card .m-name { font-size: 13.5px; font-weight: 600; }
   .m-card .m-sub { font-size: 11px; color: var(--muted); }
-  .effort-seg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; background: var(--bg); padding: 4px; border-radius: 11px; border: 1px solid var(--border); }
+  .effort-seg { display: flex; flex-wrap: wrap; gap: 6px; background: var(--bg); padding: 5px; border-radius: 11px; border: 1px solid var(--border); }
   .eff-btn {
-    border: none; background: transparent; color: var(--muted); border-radius: 8px;
-    padding: 8px 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+    flex: 1 1 28%; border: none; background: transparent; color: var(--muted); border-radius: 8px;
+    padding: 8px 6px; font-size: 12.5px; font-weight: 600; cursor: pointer; text-transform: capitalize;
   }
   .eff-btn.active { background: var(--accent); color: #fff; }
 
@@ -451,11 +451,7 @@
     <div class="sheet-title">2. Wybierz model</div>
     <div class="model-grid" id="modelGrid"></div>
     <div class="sheet-title">3. Poziom rozumowania</div>
-    <div class="effort-seg" id="effortSeg">
-      <button class="eff-btn" data-eff="Low" onclick="pickEffort('Low')">Low</button>
-      <button class="eff-btn" data-eff="Medium" onclick="pickEffort('Medium')">Medium</button>
-      <button class="eff-btn" data-eff="High" onclick="pickEffort('High')">High</button>
-    </div>
+    <div class="effort-seg" id="effortSeg"></div>
     <button class="btn-primary" onclick="closeModelSheet()">Gotowe</button>
   </div>
 </div>
@@ -463,14 +459,14 @@
 <script>
 const MEMORY_START_PROMPT = `Start sesji na Lenovo (Michal / WAC). Odczytaj G:\\Mój dysk\\Claude\\PAMIEC\\memory\\antigravity\\START_ANTIGRAVITY.md oraz G:\\Mój dysk\\Claude\\PAMIEC\\memory\\MEMORY.md i potwierdz gotowosc po polsku (max 2 zdania).`;
 
-const MODEL_FAMILIES = [
-  { id: 'Gemini 4 Neon', prov: 'gemini', short: 'Neon', sub: 'Domyślny · szybki i celny' },
-  { id: 'Gemini 4 Argon', prov: 'gemini', short: 'Argon', sub: 'Głęboka analiza' },
-  { id: 'Gemini 3.8 Flash', prov: 'gemini', short: 'Flash', sub: 'Ultraszybki' },
-  { id: 'Claude Sonnet 5.5', prov: 'claude', short: 'Sonnet 5.5', sub: 'Anthropic · zbalansowany' },
-  { id: 'Claude Opus 5.5', prov: 'claude', short: 'Opus 5.5', sub: 'Anthropic · najmocniejszy' },
-  { id: 'Codex gpt-6.2-sol', prov: 'codex', short: 'gpt-6.2-sol', sub: 'Codex · domyślny' },
-  { id: 'Codex gpt-5.4', prov: 'codex', short: 'gpt-5.4', sub: 'Codex · zapasowy' },
+let MODEL_FAMILIES = [
+  { id: 'Gemini 4 Neon', prov: 'gemini', short: 'Neon', sub: 'AGY · domyślny', efforts: ['Low', 'Medium', 'High', 'XHigh'] },
+  { id: 'Gemini 4 Argon', prov: 'gemini', short: 'Argon', sub: 'AGY · głęboka analiza', efforts: ['Low', 'Medium', 'High'] },
+  { id: 'Gemini 4 Hydrogen', prov: 'gemini', short: 'Hydrogen', sub: 'AGY · kod / narzędzia', efforts: ['Low', 'Medium', 'High', 'XHigh'] },
+  { id: 'Gemini 3.8 Flash', prov: 'gemini', short: 'Flash', sub: 'AGY · ultraszybki', efforts: ['Low', 'Medium', 'High'] },
+  { id: 'Claude Sonnet 5.5', prov: 'claude', short: 'Sonnet 5.5', sub: 'AGY · Anthropic', efforts: ['Low', 'Medium', 'High'] },
+  { id: 'Claude Opus 5.5', prov: 'claude', short: 'Opus 5.5', sub: 'AGY · najmocniejszy', efforts: ['Low', 'Medium', 'High'] },
+  { id: 'Codex gpt-6.2-sol', prov: 'codex', short: 'gpt-6.2-sol', sub: 'Codex · konto ChatGPT', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
 ];
 
 const state = {
@@ -493,14 +489,22 @@ const state = {
   recognition: null,
 };
 
+function getActiveFamily() {
+  return MODEL_FAMILIES.find(f => f.id === state.modelFamily) || MODEL_FAMILIES[0];
+}
+
 function syncFullModel() {
-  state.model = `${state.modelFamily} (${state.modelEffort})`;
-  const fam = MODEL_FAMILIES.find(f => f.id === state.modelFamily) || MODEL_FAMILIES[0];
+  const fam = getActiveFamily();
+  state.modelFamily = fam.id;
   state.modelProvider = fam.prov;
+  const effs = fam.efforts || ['Low', 'Medium', 'High'];
+  const match = effs.find(e => e.toLowerCase() === (state.modelEffort || '').toLowerCase());
+  state.modelEffort = match || (effs.find(e => e.toLowerCase() === 'medium') || effs[0]);
+  state.model = `${fam.id} (${state.modelEffort})`;
   const nEl = document.getElementById('modelPillName');
   const eEl = document.getElementById('modelPillEff');
   if (nEl) nEl.textContent = fam.short;
-  if (eEl) eEl.textContent = state.modelEffort === 'Medium' ? 'Med' : state.modelEffort;
+  if (eEl) eEl.textContent = state.modelEffort.toLowerCase() === 'medium' ? 'Med' : state.modelEffort;
 }
 
 function pickProvider(prov) {
@@ -533,8 +537,15 @@ function openModelSheet() {
     };
     grid.appendChild(b);
   });
-  document.querySelectorAll('#effortSeg .eff-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.eff === state.modelEffort);
+  const fam = getActiveFamily();
+  const effBox = document.getElementById('effortSeg');
+  effBox.innerHTML = '';
+  (fam.efforts || ['Low', 'Medium', 'High']).forEach(eff => {
+    const btn = document.createElement('button');
+    btn.className = 'eff-btn' + (eff.toLowerCase() === state.modelEffort.toLowerCase() ? ' active' : '');
+    btn.textContent = eff;
+    btn.onclick = () => pickEffort(eff);
+    effBox.appendChild(btn);
   });
   document.getElementById('modelSheet').classList.add('open');
 }
@@ -614,6 +625,9 @@ async function bootstrap() {
     const r = await fetch(apiBase() + '/api/info', { headers: authHeaders() });
     if (r.status === 401) { openSettings(); return; }
     const info = await r.json();
+    if (Array.isArray(info.model_catalog) && info.model_catalog.length) {
+      MODEL_FAMILIES = info.model_catalog;
+    }
     document.getElementById('hostBadge').textContent = info.host_label || 'LENOVO';
     updateRemoteControlUi(info.remote_control_status || '');
     renderLimits(info.limits || {});
