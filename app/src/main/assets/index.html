@@ -89,6 +89,15 @@
   .conv-title {
     font-size: 13.5px; color: var(--text); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .ps-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--ok);
+    box-shadow: 0 0 6px rgba(92,184,116,0.8); flex-shrink: 0; display: inline-block;
+  }
+  .cdx-tag {
+    font-size: 9.5px; padding: 1px 5px; border-radius: 4px;
+    background: rgba(92,184,116,0.18); color: #7cd694; font-weight: 700; flex-shrink: 0;
   }
   .conv-meta { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
   .sb-foot {
@@ -157,6 +166,12 @@
     margin-bottom: var(--safe-bottom);
   }
   .sheet-title { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .prov-seg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; background: var(--bg); padding: 4px; border-radius: 12px; border: 1px solid var(--border); }
+  .prov-btn {
+    border: none; background: transparent; color: var(--muted); border-radius: 9px;
+    padding: 9px 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .prov-btn.active { background: var(--surface2); color: var(--text); border: 1px solid var(--accent); }
   .model-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .m-card {
     background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
@@ -354,6 +369,9 @@
       <button class="icon-btn" id="btnMenu" onclick="toggleSidebar(true)">☰</button>
       <div id="chatTitle">Nowa rozmowa</div>
       <button id="modelPill" onclick="openModelSheet()"><span id="modelPillName">Neon</span><span class="eff-tag" id="modelPillEff">Med</span><span>▾</span></button>
+      <button class="icon-btn" onclick="openOnLaptop()" title="Otwórz w PowerShellu na laptopie" aria-label="Otwórz w PowerShellu">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      </button>
       <button class="icon-btn" onclick="startNewChat()" title="Nowa rozmowa">＋</button>
     </header>
     <div id="updateBar">
@@ -424,9 +442,15 @@
 
 <div id="modelSheet" onclick="if(event.target===this) closeModelSheet()">
   <div class="sheet-card">
-    <div class="sheet-title">1. Wybierz model</div>
+    <div class="sheet-title">1. Wybierz silnik</div>
+    <div class="prov-seg" id="provSeg">
+      <button class="prov-btn" data-prov="gemini" onclick="pickProvider('gemini')">Gemini</button>
+      <button class="prov-btn" data-prov="claude" onclick="pickProvider('claude')">Claude</button>
+      <button class="prov-btn" data-prov="codex" onclick="pickProvider('codex')">ChatGPT</button>
+    </div>
+    <div class="sheet-title">2. Wybierz model</div>
     <div class="model-grid" id="modelGrid"></div>
-    <div class="sheet-title">2. Poziom rozumowania</div>
+    <div class="sheet-title">3. Poziom rozumowania</div>
     <div class="effort-seg" id="effortSeg">
       <button class="eff-btn" data-eff="Low" onclick="pickEffort('Low')">Low</button>
       <button class="eff-btn" data-eff="Medium" onclick="pickEffort('Medium')">Medium</button>
@@ -440,18 +464,20 @@
 const MEMORY_START_PROMPT = `Start sesji na Lenovo (Michal / WAC). Odczytaj G:\\Mój dysk\\Claude\\PAMIEC\\memory\\antigravity\\START_ANTIGRAVITY.md oraz G:\\Mój dysk\\Claude\\PAMIEC\\memory\\MEMORY.md i potwierdz gotowosc po polsku (max 2 zdania).`;
 
 const MODEL_FAMILIES = [
-  { id: 'Gemini 4 Neon', short: 'Neon', sub: 'AGY · domyślny' },
-  { id: 'Gemini 4 Argon', short: 'Argon', sub: 'AGY · głęboka analiza' },
-  { id: 'Gemini 3.8 Flash', short: 'Flash', sub: 'AGY · ultraszybki' },
-  { id: 'Claude Sonnet 5.5', short: 'Sonnet 5.5', sub: 'AGY · Anthropic' },
-  { id: 'Claude Opus 5.5', short: 'Opus 5.5', sub: 'AGY · najmocniejszy' },
-  { id: 'Codex (gpt-6.2-sol)', short: 'Codex', sub: 'OpenAI · gpt-6.2-sol' },
+  { id: 'Gemini 4 Neon', prov: 'gemini', short: 'Neon', sub: 'Domyślny · szybki i celny' },
+  { id: 'Gemini 4 Argon', prov: 'gemini', short: 'Argon', sub: 'Głęboka analiza' },
+  { id: 'Gemini 3.8 Flash', prov: 'gemini', short: 'Flash', sub: 'Ultraszybki' },
+  { id: 'Claude Sonnet 5.5', prov: 'claude', short: 'Sonnet 5.5', sub: 'Anthropic · zbalansowany' },
+  { id: 'Claude Opus 5.5', prov: 'claude', short: 'Opus 5.5', sub: 'Anthropic · najmocniejszy' },
+  { id: 'Codex gpt-6.2-sol', prov: 'codex', short: 'gpt-6.2-sol', sub: 'Codex · domyślny' },
+  { id: 'Codex gpt-5.4', prov: 'codex', short: 'gpt-5.4', sub: 'Codex · zapasowy' },
 ];
 
 const state = {
   baseUrl: localStorage.getItem('agy_base_url') || '',
   token: localStorage.getItem('agy_token') || '',
   cwd: localStorage.getItem('agy_cwd') || 'C:\\Users\\Michał\\Desktop\\CLOUDE',
+  modelProvider: localStorage.getItem('agy_model_prov') || 'gemini',
   modelFamily: localStorage.getItem('agy_model_family') || 'Gemini 4 Neon',
   modelEffort: localStorage.getItem('agy_model_effort') || 'Medium',
   model: 'Gemini 4 Neon (Medium)',
@@ -468,22 +494,34 @@ const state = {
 };
 
 function syncFullModel() {
-  if (state.modelFamily.startsWith('Codex')) {
-    state.model = `Codex (gpt-6.2-sol ${state.modelEffort})`;
-  } else {
-    state.model = `${state.modelFamily} (${state.modelEffort})`;
-  }
+  state.model = `${state.modelFamily} (${state.modelEffort})`;
   const fam = MODEL_FAMILIES.find(f => f.id === state.modelFamily) || MODEL_FAMILIES[0];
+  state.modelProvider = fam.prov;
   const nEl = document.getElementById('modelPillName');
   const eEl = document.getElementById('modelPillEff');
   if (nEl) nEl.textContent = fam.short;
   if (eEl) eEl.textContent = state.modelEffort === 'Medium' ? 'Med' : state.modelEffort;
 }
 
+function pickProvider(prov) {
+  state.modelProvider = prov;
+  localStorage.setItem('agy_model_prov', prov);
+  const first = MODEL_FAMILIES.find(f => f.prov === prov);
+  if (first && !MODEL_FAMILIES.some(f => f.id === state.modelFamily && f.prov === prov)) {
+    state.modelFamily = first.id;
+    localStorage.setItem('agy_model_family', first.id);
+    syncFullModel();
+  }
+  openModelSheet();
+}
+
 function openModelSheet() {
+  document.querySelectorAll('#provSeg .prov-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.prov === state.modelProvider);
+  });
   const grid = document.getElementById('modelGrid');
   grid.innerHTML = '';
-  MODEL_FAMILIES.forEach(f => {
+  MODEL_FAMILIES.filter(f => f.prov === state.modelProvider).forEach(f => {
     const b = document.createElement('button');
     b.className = 'm-card' + (f.id === state.modelFamily ? ' active' : '');
     b.innerHTML = `<span class="m-name">${f.short}</span><span class="m-sub">${f.sub}</span>`;
@@ -506,6 +544,26 @@ function pickEffort(eff) {
   localStorage.setItem('agy_model_effort', eff);
   syncFullModel();
   openModelSheet();
+}
+
+async function openOnLaptop() {
+  const label = state.currentConvId ? 'tę rozmowę' : `nową rozmowę (${state.model})`;
+  try {
+    const r = await fetch(apiBase() + '/api/open-terminal', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        conversation_id: state.currentConvId,
+        model: state.model,
+        cwd: state.cwd,
+      }),
+    });
+    const d = await r.json();
+    if (d.ok) alert(`Otwarto ${label} w PowerShellu na laptopie.`);
+    else alert('Nie udało się otworzyć PowerShella: ' + (d.error || 'błąd'));
+  } catch {
+    alert('Brak połączenia z laptopem.');
+  }
 }
 
 // Pick token/server from URL query on first QR scan
@@ -700,7 +758,9 @@ function renderConvList() {
       div.onclick = () => selectConversation(c);
       const t = document.createElement('div');
       t.className = 'conv-title';
-      t.textContent = (c.running ? '● ' : '') + (c.title || c.id.slice(0, 8));
+      const dot = c.open_in_ps ? '<span class="ps-dot" title="Otwarta w PowerShellu"></span>' : '';
+      const cdx = (c.provider === 'codex' || (c.id || '').startsWith('codex:')) ? '<span class="cdx-tag">GPT</span>' : '';
+      t.innerHTML = `${dot}${cdx}<span style="overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.title || c.id.slice(0, 8))}</span>`;
       const m = document.createElement('div');
       m.className = 'conv-meta';
       const tm = (c.last_modified || '').slice(11, 16);
