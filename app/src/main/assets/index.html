@@ -868,6 +868,7 @@ async function bootstrap() {
     renderHostPills(info.host_label || 'LENOVO');
     syncFullModel();
     await loadConversations();
+    closeStaleSessions();
     renderMessages();
     checkForUpdates(false);
   } catch (e) {
@@ -1010,6 +1011,7 @@ function renderConvList() {
       const div = document.createElement('div');
       div.className = 'conv-item' + (c.id === state.currentConvId ? ' active' : '');
       div.onclick = () => selectConversation(c);
+      div.dataset.convId = c.id;
       const t = document.createElement('div');
       t.className = 'conv-title';
       const dot = c.open_in_ps ? '<span class="ps-dot" title="Otwarta w PowerShellu"></span>' : '';
@@ -1071,6 +1073,28 @@ async function selectConversation(conv) {
   }
 }
 
+function closeStaleSessions() {
+  fetch(apiBase() + '/api/close-stale', {
+    method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ current: state.currentConvId || '' }),
+  }).catch(() => {});
+}
+
+async function renameConversation(id) {
+  const conv = (state.conversations || []).find(c => c.id === id);
+  if (!conv) return;
+  const next = prompt('Nowa nazwa sesji (puste = nazwa domyślna):', conv.title || '');
+  if (next === null) return;
+  try {
+    await fetch(apiBase() + '/api/conversations/' + encodeURIComponent(id) + '/rename', {
+      method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ title: next }),
+    });
+    if (id === state.currentConvId && next.trim()) document.getElementById('chatTitle').textContent = next.trim();
+    await loadConversations();
+  } catch {}
+}
+
 function startNewChat() {
   if (state.streaming || state.listening || !canLeaveQueue()) return false;
   state.historyRequest?.abort();
@@ -1078,6 +1102,7 @@ function startNewChat() {
   state.currentConvId = '';
   state.conversationCwd = '';
   state.messages = [];
+  closeStaleSessions();
   document.getElementById('chatTitle').textContent = 'Nowa rozmowa';
   toggleSidebar(false);
   renderConvList();
@@ -1457,6 +1482,23 @@ function lineAtPoint(x, y) {
 }
 
 document.addEventListener('contextmenu', (e) => {
+  const convEl = e.target.closest('.conv-item');
+  if (convEl && convEl.dataset.convId) {
+    e.preventDefault();
+    closeAikoMenu();
+    const id = convEl.dataset.convId;
+    const menu = document.createElement('div');
+    menu.id = 'aikoCtx';
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = '✏ Zmień nazwę sesji';
+    b.onclick = () => { closeAikoMenu(); renameConversation(id); };
+    menu.appendChild(b);
+    document.body.appendChild(menu);
+    menu.style.left = Math.min(e.clientX, window.innerWidth - menu.offsetWidth - 8) + 'px';
+    menu.style.top = Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 8) + 'px';
+    return;
+  }
   if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return; // telefon: zostaw natywne menu
   const field = e.target.closest('input, textarea');
   const msgEl = e.target.closest('#messages .msg');
