@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -22,6 +23,9 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
+
+import java.io.File;
 
 import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
@@ -39,6 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private SpeechRecognizer speechRecognizer;
     private ValueCallback<Uri[]> filePathCallback;
+    private Uri pendingCameraUri;
     private String pendingLang = "pl-PL";
 
     @Override
@@ -67,6 +72,24 @@ public class MainActivity extends AppCompatActivity {
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> cb, FileChooserParams params) {
                 if (filePathCallback != null) filePathCallback.onReceiveValue(null);
                 filePathCallback = cb;
+                pendingCameraUri = null;
+
+                if (params.isCaptureEnabled()) {
+                    try {
+                        File camDir = new File(getCacheDir(), "camera");
+                        if (!camDir.exists()) camDir.mkdirs();
+                        File photo = new File(camDir, "foto_" + System.currentTimeMillis() + ".jpg");
+                        pendingCameraUri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".fileprovider", photo);
+                        Intent camIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                        camIntent.putExtra(MediaStore.EXTRA_OUTPUT, pendingCameraUri);
+                        camIntent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivityForResult(camIntent, REQ_FILE);
+                        return true;
+                    } catch (Exception e) {
+                        pendingCameraUri = null;
+                    }
+                }
+
                 Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 String[] accept = params.getAcceptTypes();
@@ -209,17 +232,22 @@ public class MainActivity extends AppCompatActivity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_FILE && filePathCallback != null) {
             Uri[] result = null;
-            if (resultCode == Activity.RESULT_OK && data != null) {
-                if (data.getClipData() != null) {
-                    int count = data.getClipData().getItemCount();
-                    result = new Uri[count];
-                    for (int i = 0; i < count; i++) {
-                        result[i] = data.getClipData().getItemAt(i).getUri();
+            if (resultCode == Activity.RESULT_OK) {
+                if (pendingCameraUri != null) {
+                    result = new Uri[]{pendingCameraUri};
+                } else if (data != null) {
+                    if (data.getClipData() != null) {
+                        int count = data.getClipData().getItemCount();
+                        result = new Uri[count];
+                        for (int i = 0; i < count; i++) {
+                            result[i] = data.getClipData().getItemAt(i).getUri();
+                        }
+                    } else if (data.getData() != null) {
+                        result = new Uri[]{data.getData()};
                     }
-                } else if (data.getData() != null) {
-                    result = new Uri[]{data.getData()};
                 }
             }
+            pendingCameraUri = null;
             filePathCallback.onReceiveValue(result);
             filePathCallback = null;
         }
