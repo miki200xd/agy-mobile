@@ -137,6 +137,12 @@
   .bubble pre .copy-btn { position: absolute; top: 6px; right: 6px; }
   .bubble code.copyable { cursor: copy; }
   .msg-actions { margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+  #messages, #messages * { -webkit-user-select: text; user-select: text; }
+  #aikoCtx { position: fixed; z-index: 9999; min-width: 190px; padding: 4px; border-radius: 10px;
+    background: #2a2826; color: #eee; border: 1px solid #555; box-shadow: 0 8px 24px rgba(0,0,0,.45); font-size: 14px; }
+  #aikoCtx button { display: block; width: 100%; text-align: left; padding: 8px 12px; background: none; border: 0;
+    color: inherit; border-radius: 6px; cursor: pointer; font: inherit; }
+  #aikoCtx button:hover { background: #3d3a37; }
   .chat-img { max-width: 100%; max-height: 420px; border-radius: 10px; margin: 6px 0; display: block; cursor: zoom-in; background: #fff; }
   .bubble a { color: #7cb7ff; text-decoration: underline; cursor: pointer; }
   #certainBtn, #coopBtn {
@@ -1116,6 +1122,14 @@ function renderMarkdown(md) {
 
 function renderMessages() {
   const box = document.getElementById('messages');
+  const sel = window.getSelection && window.getSelection();
+  const lastMsg = state.messages[state.messages.length - 1];
+  const finished = lastMsg && lastMsg.role === 'assistant' && lastMsg.succeeded !== undefined;
+  if (state.streaming && !finished && sel && !sel.isCollapsed && sel.anchorNode && box.contains(sel.anchorNode)) {
+    state._renderDeferred = true;   // uzytkownik zaznacza tekst: nie przebudowuj DOM, dokoncz po zwolnieniu zaznaczenia
+    return;
+  }
+  state._renderDeferred = false;
   box.innerHTML = '';
   if (!state.messages.length) {
     box.innerHTML = `
@@ -1411,6 +1425,81 @@ document.addEventListener('keydown', (e) => {
     document.documentElement.requestFullscreen();
   }
 });
+
+document.addEventListener('selectionchange', () => {
+  const sel = window.getSelection();
+  if (state._renderDeferred && sel && sel.isCollapsed) renderMessages();
+});
+
+function closeAikoMenu() {
+  const m = document.getElementById('aikoCtx');
+  if (m) m.remove();
+}
+
+function lineAtPoint(x, y) {
+  const sel = window.getSelection();
+  const saved = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+  let text = '';
+  try {
+    const range = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+    if (range) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+      sel.modify('move', 'backward', 'lineboundary');
+      sel.modify('extend', 'forward', 'lineboundary');
+      text = sel.toString().trim();
+    }
+  } catch {}
+  sel.removeAllRanges();
+  if (saved) sel.addRange(saved);
+  return text;
+}
+
+document.addEventListener('contextmenu', (e) => {
+  if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return; // telefon: zostaw natywne menu
+  const field = e.target.closest('input, textarea');
+  const msgEl = e.target.closest('#messages .msg');
+  if (!field && !msgEl) return;
+  e.preventDefault();
+  closeAikoMenu();
+  const selected = (window.getSelection().toString() || '').trim();
+  const items = [];
+  if (field) {
+    const picked = field.value.substring(field.selectionStart || 0, field.selectionEnd || 0);
+    if (picked) {
+      items.push(['Kopiuj', () => copyText(picked, null)]);
+      items.push(['Wytnij', () => { copyText(picked, null); field.setRangeText('', field.selectionStart, field.selectionEnd, 'end'); field.dispatchEvent(new Event('input')); }]);
+    }
+    items.push(['Wklej', async () => {
+      try { const clip = await navigator.clipboard.readText(); field.setRangeText(clip, field.selectionStart, field.selectionEnd, 'end'); field.dispatchEvent(new Event('input')); field.focus(); } catch {}
+    }]);
+  } else {
+    const line = selected ? '' : lineAtPoint(e.clientX, e.clientY);
+    if (selected) items.push(['Kopiuj zaznaczenie', () => copyText(selected, null)]);
+    if (line) items.push(['Kopiuj tę linijkę', () => copyText(line, null)]);
+    const bubble = msgEl.querySelector('.bubble');
+    if (bubble) items.push(['Kopiuj całą wiadomość', () => copyText(bubble.innerText, null)]);
+    const code = e.target.closest('pre');
+    if (code) items.push(['Kopiuj blok kodu', () => copyText(code.innerText.replace(/\n$/, ''), null)]);
+  }
+  if (!items.length) return;
+  const menu = document.createElement('div');
+  menu.id = 'aikoCtx';
+  items.forEach(([label, action]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.onclick = () => { closeAikoMenu(); action(); };
+    menu.appendChild(b);
+  });
+  document.body.appendChild(menu);
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = Math.min(e.clientX, window.innerWidth - w - 8) + 'px';
+  menu.style.top = Math.min(e.clientY, window.innerHeight - h - 8) + 'px';
+});
+document.addEventListener('mousedown', (e) => { if (!e.target.closest('#aikoCtx')) closeAikoMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAikoMenu(); });
+window.addEventListener('blur', closeAikoMenu);
 
 function renderAttachments() {
   const bar = document.getElementById('attBar');
