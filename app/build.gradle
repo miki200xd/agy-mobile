@@ -11,7 +11,7 @@ android {
         minSdk 26
         targetSdk 34
         versionCode Integer.parseInt(System.getenv("VERSION_CODE") ?: "1")
-        versionName "1.6"
+        versionName "1.7"
     }
 
     buildFeatures {

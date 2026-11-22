@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' file: data: blob:; connect-src http: https:; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<meta name="referrer" content="no-referrer">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#1a1917">
@@ -482,6 +484,8 @@ const state = {
   pendingUpdateUrl: '',
   conversations: [],
   currentConvId: '',
+  historyRequest: null,
+  conversationCwd: '',
   messages: [],
   attachments: [],
   streaming: false,
@@ -492,7 +496,7 @@ const state = {
 
 function getActiveFamily() {
   if (state.modelProvider === 'auto' || state.modelFamily === 'Auto') {
-    return { id: 'Auto', prov: 'auto', short: '⚡ Auto', sub: 'Dobiera silnik wg zadania i szybszego resetu limitu (fallback na AGY)', efforts: ['Auto'] };
+    return { id: 'Auto', prov: 'auto', short: '⚡ Auto', sub: 'Dobiera model według zadania i dostępnych limitów', efforts: ['Auto'] };
   }
   return MODEL_FAMILIES.find(f => f.id === state.modelFamily) || MODEL_FAMILIES[0];
 }
@@ -543,7 +547,7 @@ function openModelSheet() {
     const b = document.createElement('button');
     b.className = 'm-card' + (f.id === state.modelFamily ? ' active' : '');
     if (state.modelProvider === 'auto') b.style.gridColumn = '1 / -1';
-    b.innerHTML = `<span class="m-name">${f.short}</span><span class="m-sub">${f.sub}</span>`;
+    b.innerHTML = `<span class="m-name">${escapeHtml(f.short)}</span><span class="m-sub">${escapeHtml(f.sub || '')}</span>`;
     b.onclick = () => {
       state.modelFamily = f.id;
       localStorage.setItem('agy_model_family', f.id);
@@ -581,7 +585,7 @@ async function openOnLaptop() {
       body: JSON.stringify({
         conversation_id: state.currentConvId,
         model: state.model,
-        cwd: state.cwd,
+        cwd: state.conversationCwd || state.cwd,
       }),
     });
     const d = await r.json();
@@ -597,12 +601,27 @@ async function openOnLaptop() {
   const params = new URLSearchParams(location.search);
   const t = params.get('token');
   const s = params.get('server');
-  if (t) { state.token = t; localStorage.setItem('agy_token', t); }
-  if (s) { state.baseUrl = s.replace(/\/+$/, ''); localStorage.setItem('agy_base_url', state.baseUrl); }
+  try {
+    if (s && t) {
+      state.baseUrl = normalizeServerUrl(s);
+      localStorage.setItem('agy_base_url', state.baseUrl);
+    } else if (t && location.protocol !== 'file:') {
+      state.baseUrl = '';
+      localStorage.setItem('agy_base_url', '');
+    }
+    if (t) { state.token = t; localStorage.setItem('agy_token', t); }
+  } catch {}
   if (t || s) history.replaceState({}, '', location.pathname);
 })();
 
-function apiBase() { return state.baseUrl || ''; }
+function normalizeServerUrl(value) {
+  if (!value) return '';
+  const url = new URL(value);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Nieprawidłowy adres');
+  return url.origin;
+}
+
+function apiBase() { return normalizeServerUrl(state.baseUrl); }
 function authHeaders(extra = {}) {
   const h = { ...extra };
   if (state.token) h['Authorization'] = 'Bearer ' + state.token;
@@ -623,8 +642,18 @@ function openSettings() {
 }
 function closeSettings() { document.getElementById('modal').classList.remove('open'); }
 function saveSettings() {
-  state.baseUrl = document.getElementById('cfgUrl').value.trim().replace(/\/+$/, '');
-  state.token = document.getElementById('cfgToken').value.trim();
+  if (state.streaming || state.listening) return;
+  let url;
+  try {
+    url = normalizeServerUrl(document.getElementById('cfgUrl').value.trim());
+  } catch {
+    alert('Wpisz adres serwera zaczynający się od http:// lub https://.');
+    return;
+  }
+  const token = document.getElementById('cfgToken').value.trim();
+  if (url !== state.baseUrl || token !== state.token) startNewChat();
+  state.baseUrl = url;
+  state.token = token;
   state.cwd = document.getElementById('cfgCwd').value.trim() || 'C:\\Users\\Michał\\Desktop\\CLOUDE';
   state.autoSendVoice = document.getElementById('cfgAutoSend').checked;
   localStorage.setItem('agy_base_url', state.baseUrl);
@@ -676,12 +705,12 @@ function renderLimits(lim) {
   const box = document.getElementById('limitsBox');
   if (!lim || (!lim.agy && !lim.codex)) { box.style.display = 'none'; return; }
   box.style.display = 'flex';
-  let html = '<div class="lim-head"><span>Limity (AGY / ChatGPT)</span><button class="btn-secondary" style="padding:1px 6px;font-size:10px" onclick="refreshLimits()">↻</button></div>';
+  let html = '<div class="lim-head"><span>Zużycie limitów (AGY / ChatGPT)</span><button class="btn-secondary" style="padding:1px 6px;font-size:10px" onclick="refreshLimits()">↻</button></div>';
   if (lim.agy) {
-    const g5 = Math.round(lim.agy.g5 || 0);
-    const gw = Math.round(lim.agy.gw || 0);
-    html += `<div class="lim-row"><div class="lim-label"><span>AGY 5h (${fmtEpoch(lim.agy.g5r, false)})</span><span>${g5}%</span></div><div class="lim-bar"><div class="lim-fill ${barClass(g5, false)}" style="width:${Math.min(100,g5)}%"></div></div></div>`;
-    html += `<div class="lim-row"><div class="lim-label"><span>AGY tydz. (${fmtEpoch(lim.agy.gwr, true)})</span><span>${gw}%</span></div><div class="lim-bar"><div class="lim-fill ${barClass(gw, false)}" style="width:${Math.min(100,gw)}%"></div></div></div>`;
+    const g5 = lim.agy.g5 == null ? null : 100 - Math.round(lim.agy.g5);
+    const gw = lim.agy.gw == null ? null : 100 - Math.round(lim.agy.gw);
+    html += `<div class="lim-row"><div class="lim-label"><span>AGY 5h (${fmtEpoch(lim.agy.g5r, false)})</span><span>${g5 == null ? '—' : g5 + '%'}</span></div><div class="lim-bar"><div class="lim-fill ${barClass(g5, false)}" style="width:${Math.min(100,g5)}%"></div></div></div>`;
+    html += `<div class="lim-row"><div class="lim-label"><span>AGY tydz. (${fmtEpoch(lim.agy.gwr, true)})</span><span>${gw == null ? '—' : gw + '%'}</span></div><div class="lim-bar"><div class="lim-fill ${barClass(gw, false)}" style="width:${Math.min(100,gw)}%"></div></div></div>`;
   }
   if (lim.codex) {
     const p5 = Math.round(lim.codex.p5 || 0);
@@ -793,7 +822,7 @@ function renderConvList() {
       const m = document.createElement('div');
       m.className = 'conv-meta';
       const tm = (c.last_modified || '').slice(11, 16);
-      m.innerHTML = `<span>${c.step_count || 0} kroków</span><span>${tm}</span>`;
+      m.innerHTML = `<span>${c.step_count == null ? '' : c.step_count + ' kroków'}</span><span>${tm}</span>`;
       div.append(t, m);
       list.appendChild(div);
     });
@@ -801,22 +830,54 @@ function renderConvList() {
 }
 
 async function selectConversation(conv) {
+  if (state.streaming || state.listening) return;
+  state.historyRequest?.abort();
+  const request = new AbortController();
+  state.historyRequest = request;
   state.currentConvId = conv.id;
+  state.conversationCwd = conv.workspace || '';
+  state.messages = [];
   document.getElementById('chatTitle').textContent = conv.title || conv.id.slice(0, 8);
   toggleSidebar(false);
   renderConvList();
+  renderMessages();
+  if (state.modelProvider !== 'auto') {
+    const provider = conv.id.startsWith('codex:') ? 'codex' : 'gemini';
+    if ((state.modelProvider === 'codex') !== (provider === 'codex')) {
+      const family = MODEL_FAMILIES.find(f => f.prov === provider && conv.model?.startsWith(f.id + ' ('))
+        || MODEL_FAMILIES.find(f => f.prov === provider);
+      if (family) {
+        state.modelProvider = provider;
+        state.modelFamily = family.id;
+        state.modelEffort = conv.model?.match(/\((\w+)\)$/)?.[1] || 'Medium';
+        syncFullModel();
+      }
+    }
+  }
   try {
-    const r = await fetch(apiBase() + `/api/conversations/${conv.id}/messages`, { headers: authHeaders() });
+    const r = await fetch(apiBase() + '/api/conversations/' + encodeURIComponent(conv.id) + '/messages', {
+      headers: authHeaders(), signal: request.signal,
+    });
+    if (!r.ok) throw new Error(await responseError(r));
     const data = await r.json();
+    if (state.historyRequest !== request) return;
     state.messages = data.messages || [];
     renderMessages();
   } catch (e) {
-    renderErrorBanner('Nie udało się wczytać historii rozmowy.');
+    if (state.historyRequest === request && e.name !== 'AbortError') {
+      renderErrorBanner('Nie udało się wczytać historii rozmowy. ' + e.message);
+    }
+  } finally {
+    if (state.historyRequest === request) state.historyRequest = null;
   }
 }
 
 function startNewChat() {
+  if (state.streaming || state.listening) return;
+  state.historyRequest?.abort();
+  state.historyRequest = null;
   state.currentConvId = '';
+  state.conversationCwd = '';
   state.messages = [];
   document.getElementById('chatTitle').textContent = 'Nowa rozmowa';
   toggleSidebar(false);
@@ -826,6 +887,7 @@ function startNewChat() {
 }
 
 function startMemorySession() {
+  if (state.streaming || state.listening) return;
   startNewChat();
   document.getElementById('inputBox').value = MEMORY_START_PROMPT;
   sendMessage();
@@ -836,18 +898,21 @@ function escapeHtml(s) {
 }
 
 function renderMarkdown(md) {
-  let html = escapeHtml(md || '');
-  html = html.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code.replace(/^\w*\n/, '')}</code></pre>`);
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  const fragments = [];
+  const preserve = html => '\u0001' + (fragments.push(html) - 1) + '\u0002';
+  let html = escapeHtml((md || '').replace(/[\u0001\u0002]/g, ''));
+  html = html.replace(/```([\s\S]*?)```/g, (_, code) => preserve('<pre><code>' + code.replace(/^\w*\n/, '') + '</code></pre>'));
+  html = html.replace(/`([^`]+)`/g, (_, code) => preserve('<code>' + code + '</code>'));
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, label, url) =>
+    preserve('<a href="' + url + '" rel="noopener noreferrer">' + label + '</a>'));
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
   html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
   html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>').replace(/<\/ul>\s*<ul>/g, '');
   html = html.replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br>');
-  return '<p>' + html + '</p>';
+  return '<p>' + html.replace(/\u0001(\d+)\u0002/g, (_, i) => fragments[i]) + '</p>';
 }
 
 function renderMessages() {
@@ -920,11 +985,13 @@ function startQrScan() {
 
 window.__androidQrResult = function(raw) {
   const st = document.getElementById('qrStatus');
-  if (!raw) return;
+  if (!raw || state.streaming || state.listening) return;
   try {
     const u = new URL(raw.trim());
-    const base = u.origin;
+    const base = normalizeServerUrl(u.href);
     const tok = u.searchParams.get('token') || '';
+    if (!tok) throw new Error('Brak tokenu');
+    startNewChat();
     state.baseUrl = base;
     if (tok) state.token = tok;
     localStorage.setItem('agy_base_url', state.baseUrl);
@@ -937,8 +1004,8 @@ window.__androidQrResult = function(raw) {
     closeSettings();
     bootstrap();
   } catch (e) {
-    if (st) { st.style.display = 'block'; st.textContent = 'Nieprawidłowy kod QR: ' + raw; }
-    alert('Zeskanowany kod nie jest adresem AGY Bridge:\n' + raw);
+    if (st) { st.style.display = 'block'; st.textContent = 'Nieprawidłowy kod QR AGY Bridge'; }
+    alert('Kod QR musi zawierać adres i token AGY Bridge.');
   }
 };
 
@@ -1039,6 +1106,8 @@ function renderHostPills(currentLabel) {
     b.className = 'host-pill' + (h.url === state.baseUrl ? ' active' : '');
     b.textContent = '💻 ' + h.name;
     b.onclick = () => {
+      if (state.streaming || state.listening || (!h.token && h.url !== state.baseUrl)) return;
+      startNewChat();
       state.baseUrl = h.url || '';
       if (h.token) state.token = h.token;
       localStorage.setItem('agy_base_url', state.baseUrl);
@@ -1055,16 +1124,13 @@ function onSendOrStop() {
   else sendMessage();
 }
 
-async function stopGeneration() {
-  if (state.abortController) state.abortController.abort();
-  if (state.currentConvId) {
-    try {
-      await fetch(apiBase() + `/api/conversations/${state.currentConvId}/stop`, {
-        method: 'POST', headers: authHeaders()
-      });
-    } catch {}
-  }
-  setStreaming(false);
+function stopGeneration() {
+  state.abortController?.abort();
+}
+
+async function responseError(response) {
+  const data = await response.json().catch(() => null);
+  return data?.error || 'HTTP ' + response.status;
 }
 
 const SVG_SEND = '<svg viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
@@ -1078,10 +1144,14 @@ function setStreaming(val) {
 }
 
 async function sendMessage() {
+  if (state.streaming || state.historyRequest) return;
   const box = document.getElementById('inputBox');
   const text = box.value.trim();
+  if (state.listening) {
+    finishDictation(true);
+    return;
+  }
   if (!text && !state.attachments.length) return;
-  if (state.listening) toggleMic();
 
   const atts = state.attachments.map(a => a.path);
   state.attachments = [];
@@ -1105,15 +1175,20 @@ async function sendMessage() {
         conversation_id: state.currentConvId,
         message: text,
         model: state.model,
-        cwd: state.cwd,
+        cwd: state.conversationCwd || state.cwd,
         attachments: atts,
       }),
       signal: state.abortController.signal,
     });
 
+    if (!resp.ok) throw new Error(await responseError(resp));
+    if (!resp.headers.get('content-type')?.startsWith('text/event-stream') || !resp.body) {
+      throw new Error('Serwer nie zwrócił strumienia odpowiedzi.');
+    }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
+    let ended = false;
 
     while (true) {
       const { value, done } = await reader.read();
@@ -1126,23 +1201,30 @@ async function sendMessage() {
         if (!line.startsWith('data:')) continue;
         try {
           const ev = JSON.parse(line.slice(5).trim());
+          if (ev.type === 'done') ended = true;
           handleStreamEvent(ev, assistantMsg);
         } catch {}
       }
     }
+    if (!ended) throw new Error('Strumień zakończył się przedwcześnie.');
   } catch (e) {
-    if (e.name !== 'AbortError') {
+    if (e.name === 'AbortError') {
+      assistantMsg.footer = 'Zatrzymano';
+      assistantMsg.tools.forEach(tool => tool.live = false);
+      renderMessages();
+    } else {
       assistantMsg.text += `\n\n⚠ Błąd połączenia: ${e.message}`;
       renderMessages();
     }
   } finally {
+    state.abortController = null;
     setStreaming(false);
     loadConversations();
   }
 }
 
 function handleStreamEvent(ev, msg) {
-  if (ev.conversation_id && !state.currentConvId) {
+  if (ev.conversation_id && ev.conversation_id !== state.currentConvId && (ev.type === 'init' || !state.currentConvId)) {
     state.currentConvId = ev.conversation_id;
     document.getElementById('chatTitle').textContent = state.messages[0]?.text?.slice(0, 40) || ev.conversation_id.slice(0, 8);
   }
@@ -1153,13 +1235,14 @@ function handleStreamEvent(ev, msg) {
     const label = ev.tool_name || ev.step_type || 'narzędzie';
     const existing = msg.tools.find(t => t.idx === ev.step_index && ev.step_index != null);
     if (existing) {
+      existing.label = label;
       existing.live = ev.state !== 'DONE';
     } else {
       msg.tools.push({ idx: ev.step_index, label, live: ev.state !== 'DONE' });
     }
     renderMessages();
   } else if (ev.type === 'result') {
-    if (!msg.text && ev.response) msg.text = ev.response;
+    if (ev.response) msg.text = ev.response;
     if (ev.error) msg.text += `\n\n⚠ ${ev.error}`;
     msg.tools.forEach(t => t.live = false);
     const sec = ev.duration_seconds ? ev.duration_seconds.toFixed(1) + 's' : '';
@@ -1172,10 +1255,14 @@ function handleStreamEvent(ev, msg) {
   }
 }
 
-/* ===== VOICE DICTATION (Android Native Bridge + Web Speech API fallback) ===== */
+/* ===== VOICE DICTATION ===== */
 let voiceBaseText = '';
+let voiceStopping = false;
+let voiceSendOnFinish = false;
+let voiceHintTimer;
 
 function setVoiceUi(active, hint = '') {
+  clearTimeout(voiceHintTimer);
   state.listening = active;
   document.getElementById('btnMic').classList.toggle('listening', active);
   const h = document.getElementById('voiceHint');
@@ -1183,76 +1270,86 @@ function setVoiceUi(active, hint = '') {
   h.classList.toggle('show', !!hint);
 }
 
-// Callbacks invoked by Android APK native SpeechRecognizer
-window.__androidVoicePartial = function(txt) {
+function writeDictation(text) {
   const box = document.getElementById('inputBox');
-  box.value = (voiceBaseText ? voiceBaseText + ' ' : '') + txt;
+  box.value = [voiceBaseText, text.trim()].filter(Boolean).join(' ');
   autoGrow(box);
-  setVoiceUi(true, '🎙️ Słucham...');
+}
+
+function finishDictation(send = false) {
+  voiceSendOnFinish ||= send;
+  if (!state.listening || voiceStopping) return;
+  voiceStopping = true;
+  setVoiceUi(true, 'Kończę dyktowanie…');
+  if (window.AndroidVoice) window.AndroidVoice.stopListening();
+  else state.recognition?.stop();
+}
+
+window.__androidVoicePartial = function(txt) {
+  if (state.listening) writeDictation(txt);
 };
 window.__androidVoiceFinal = function(txt) {
-  const box = document.getElementById('inputBox');
-  if (txt) {
-    box.value = (voiceBaseText ? voiceBaseText + ' ' : '') + txt;
-    autoGrow(box);
-  }
-  setVoiceUi(false, '');
-  if (state.autoSendVoice && box.value.trim()) sendMessage();
+  if (!state.listening) return;
+  if (txt.trim()) writeDictation(txt);
+  setVoiceUi(false);
+  if (voiceSendOnFinish || (txt.trim() && state.autoSendVoice)) sendMessage();
 };
 window.__androidVoiceError = function(err) {
+  if (!state.listening) return;
   setVoiceUi(false, err ? '🎙️ ' + err : '');
-  setTimeout(() => setVoiceUi(false, ''), 2500);
+  if (err) voiceHintTimer = setTimeout(() => setVoiceUi(false), 2500);
 };
 
 function toggleMic() {
-  const box = document.getElementById('inputBox');
-  // 1. Native Android APK bridge (best reliability)
-  if (window.AndroidVoice) {
-    if (state.listening) {
-      window.AndroidVoice.stopListening();
-      setVoiceUi(false, '');
-    } else {
-      voiceBaseText = box.value.trim();
-      setVoiceUi(true, '🎙️ Słucham (Android)...');
-      window.AndroidVoice.startListening('pl-PL');
-    }
+  if (state.streaming) return;
+  if (state.listening) {
+    finishDictation();
     return;
   }
-
-  // 2. Web Speech API fallback (Chrome / Edge / Android Chrome)
+  const box = document.getElementById('inputBox');
+  voiceBaseText = box.value.trim();
+  voiceStopping = false;
+  voiceSendOnFinish = false;
+  if (window.AndroidVoice) {
+    setVoiceUi(true, '🎙️ Słucham…');
+    window.AndroidVoice.startListening('pl-PL');
+    return;
+  }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
-    alert('Twoja przeglądarka nie obsługuje dyktowania Web Speech. Użyj mikrofonu na klawiaturze lub aplikacji AGY Mobile APK.');
+    alert('Ta przeglądarka nie obsługuje dyktowania. Użyj mikrofonu na klawiaturze lub aplikacji AGY Mobile.');
     return;
   }
-  if (state.listening && state.recognition) {
-    state.recognition.stop();
-    setVoiceUi(false, '');
-    return;
-  }
-  voiceBaseText = box.value.trim();
   const rec = new SR();
+  let finalText = '';
   rec.lang = 'pl-PL';
   rec.continuous = true;
   rec.interimResults = true;
-  rec.onstart = () => setVoiceUi(true, '🎙️ Słucham... kliknij mikrofon aby zakończyć');
   rec.onresult = (e) => {
-    let finalStr = '', interimStr = '';
-    for (let i = 0; i < e.results.length; i++) {
-      if (e.results[i].isFinal) finalStr += e.results[i][0].transcript + ' ';
-      else interimStr += e.results[i][0].transcript;
-    }
-    box.value = (voiceBaseText ? voiceBaseText + ' ' : '') + (finalStr + interimStr).trim();
-    autoGrow(box);
+    if (state.recognition !== rec) return;
+    const results = Array.from(e.results);
+    finalText = results.filter(result => result.isFinal).map(result => result[0].transcript.trim()).join(' ');
+    const interim = results.filter(result => !result.isFinal).map(result => result[0].transcript.trim()).join(' ');
+    writeDictation([finalText, interim].filter(Boolean).join(' '));
   };
-  rec.onerror = (e) => setVoiceUi(false, '🎙️ Błąd mikrofonu: ' + e.error);
+  rec.onerror = (e) => {
+    if (state.recognition !== rec) return;
+    state.recognition = null;
+    window.__androidVoiceError('Błąd mikrofonu: ' + e.error);
+  };
   rec.onend = () => {
-    const wasListening = state.listening;
-    setVoiceUi(false, '');
-    if (wasListening && state.autoSendVoice && box.value.trim()) sendMessage();
+    if (state.recognition !== rec) return;
+    state.recognition = null;
+    window.__androidVoiceFinal(finalText);
   };
   state.recognition = rec;
-  rec.start();
+  setVoiceUi(true, '🎙️ Słucham…');
+  try {
+    rec.start();
+  } catch {
+    state.recognition = null;
+    window.__androidVoiceError('Nie udało się uruchomić mikrofonu');
+  }
 }
 
 bootstrap();

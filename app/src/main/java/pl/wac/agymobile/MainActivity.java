@@ -3,6 +3,7 @@ package pl.wac.agymobile;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
@@ -16,6 +17,7 @@ import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
@@ -30,6 +32,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
@@ -41,6 +44,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity {
+    private static final String APP_PAGE = "file:///android_asset/index.html";
     private static final int REQ_AUDIO = 1001;
     private static final int REQ_FILE = 1002;
 
@@ -48,7 +52,8 @@ public class MainActivity extends AppCompatActivity {
     private SpeechRecognizer speechRecognizer;
     private ValueCallback<Uri[]> filePathCallback;
     private Uri pendingCameraUri;
-    private String pendingLang = "pl-PL";
+    private String pendingLang;
+    private final AtomicBoolean downloadingUpdate = new AtomicBoolean();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,12 +70,26 @@ public class MainActivity extends AppCompatActivity {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
-        s.setAllowFileAccess(true);
+        s.setAllowFileAccess(false);
+        s.setAllowFileAccessFromFileURLs(false);
         s.setAllowUniversalAccessFromFileURLs(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
         webView.addJavascriptInterface(new VoiceBridge(), "AndroidVoice");
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if (request.isForMainFrame() && request.hasGesture()
+                        && ("https".equals(uri.getScheme()) || "http".equals(uri.getScheme()))) {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                    } catch (android.content.ActivityNotFoundException ignored) {
+                    }
+                }
+                return true;
+            }
+        });
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> cb, FileChooserParams params) {
@@ -112,29 +131,43 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        webView.loadUrl("file:///android_asset/index.html");
+        webView.loadUrl(APP_PAGE);
     }
 
     private void evalJs(String js) {
-        runOnUiThread(() -> webView.evaluateJavascript(js, null));
+        runOnUiThread(() -> {
+            if (webView != null) webView.evaluateJavascript(js, null);
+        });
+    }
+
+    private void voiceError(String message) {
+        evalJs("window.__androidVoiceError && window.__androidVoiceError(" + JSONObject.quote(message) + ")");
+    }
+
+    private void releaseSpeechRecognizer() {
+        if (speechRecognizer != null) {
+            SpeechRecognizer current = speechRecognizer;
+            speechRecognizer = null;
+            current.destroy();
+        }
     }
 
     private void startNativeSpeech(String lang) {
+        if (webView == null || pendingLang != null || speechRecognizer != null) return;
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             pendingLang = lang;
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
             return;
         }
-        runOnUiThread(() -> {
-            if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-                evalJs("window.__androidVoiceError && window.__androidVoiceError('Brak usługi rozpoznawania mowy Google')");
-                return;
-            }
-            if (speechRecognizer != null) {
-                speechRecognizer.destroy();
-            }
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
-            speechRecognizer.setRecognitionListener(new RecognitionListener() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            voiceError("Brak usługi rozpoznawania mowy");
+            return;
+        }
+
+        try {
+            SpeechRecognizer current = SpeechRecognizer.createSpeechRecognizer(this);
+            speechRecognizer = current;
+            current.setRecognitionListener(new RecognitionListener() {
                 @Override public void onReadyForSpeech(Bundle params) {}
                 @Override public void onBeginningOfSpeech() {}
                 @Override public void onRmsChanged(float rmsdB) {}
@@ -144,25 +177,29 @@ public class MainActivity extends AppCompatActivity {
 
                 @Override
                 public void onPartialResults(Bundle partialResults) {
-                    ArrayList<String> list = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                    if (list != null && !list.isEmpty()) {
-                        String q = JSONObject.quote(list.get(0));
-                        evalJs("window.__androidVoicePartial && window.__androidVoicePartial(" + q + ")");
+                    if (speechRecognizer != current) return;
+                    ArrayList<String> results = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (results != null && !results.isEmpty()) {
+                        evalJs("window.__androidVoicePartial && window.__androidVoicePartial(" + JSONObject.quote(results.get(0)) + ")");
                     }
                 }
 
                 @Override
-                public void onResults(Bundle results) {
-                    ArrayList<String> list = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                    String txt = (list != null && !list.isEmpty()) ? list.get(0) : "";
-                    evalJs("window.__androidVoiceFinal && window.__androidVoiceFinal(" + JSONObject.quote(txt) + ")");
+                public void onResults(Bundle finalResults) {
+                    if (speechRecognizer != current) return;
+                    ArrayList<String> results = finalResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    String text = results != null && !results.isEmpty() ? results.get(0) : "";
+                    releaseSpeechRecognizer();
+                    evalJs("window.__androidVoiceFinal && window.__androidVoiceFinal(" + JSONObject.quote(text) + ")");
                 }
 
                 @Override
                 public void onError(int error) {
-                    String msg = (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
-                            ? "" : ("Kod błędu mowy: " + error);
-                    evalJs("window.__androidVoiceError && window.__androidVoiceError(" + JSONObject.quote(msg) + ")");
+                    if (speechRecognizer != current) return;
+                    releaseSpeechRecognizer();
+                    String message = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                            ? "Nie rozpoznano mowy" : "Błąd rozpoznawania mowy (" + error + ")";
+                    voiceError(message);
                 }
             });
 
@@ -171,28 +208,36 @@ public class MainActivity extends AppCompatActivity {
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang);
             intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
             intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2200L);
-            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1800L);
-            speechRecognizer.startListening(intent);
-        });
+            current.startListening(intent);
+        } catch (RuntimeException e) {
+            releaseSpeechRecognizer();
+            voiceError("Nie udało się uruchomić mikrofonu");
+        }
     }
 
     private void stopNativeSpeech() {
-        runOnUiThread(() -> {
-            if (speechRecognizer != null) {
-                speechRecognizer.stopListening();
-            }
-        });
+        pendingLang = null;
+        if (speechRecognizer == null) {
+            voiceError("");
+            return;
+        }
+        try {
+            speechRecognizer.stopListening();
+        } catch (RuntimeException e) {
+            releaseSpeechRecognizer();
+            voiceError("Nie udało się zakończyć dyktowania");
+        }
     }
 
     public class VoiceBridge {
         @JavascriptInterface
         public void startListening(String lang) {
-            startNativeSpeech((lang == null || lang.isEmpty()) ? "pl-PL" : lang);
+            runOnUiThread(() -> startNativeSpeech((lang == null || lang.isEmpty()) ? "pl-PL" : lang));
         }
 
         @JavascriptInterface
         public void stopListening() {
-            stopNativeSpeech();
+            runOnUiThread(MainActivity.this::stopNativeSpeech);
         }
 
         @JavascriptInterface
@@ -232,6 +277,7 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public void installUpdate(String apkUrl) {
+            if (!downloadingUpdate.compareAndSet(false, true)) return;
             new Thread(() -> {
                 try {
                     evalJs("window.__updateProgress && window.__updateProgress(1, 'Pobieranie...')");
@@ -240,20 +286,23 @@ public class MainActivity extends AppCompatActivity {
                     File apk = new File(dir, "AGY_Mobile.apk");
 
                     URL url = new URL(apkUrl);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setInstanceFollowRedirects(true);
-                    conn.setConnectTimeout(15000);
-                    conn.setReadTimeout(30000);
-                    int total = conn.getContentLength();
-
+                    String releasePrefix = "/miki200xd/agy-mobile/releases/download/";
+                    if (!"https".equals(url.getProtocol()) || !"github.com".equalsIgnoreCase(url.getHost())
+                            || url.getUserInfo() != null || url.getPort() != -1
+                            || !url.getPath().startsWith(releasePrefix) || !url.getPath().endsWith("/AGY_Mobile.apk")) {
+                        throw new IllegalArgumentException("Nieprawidłowy adres wydania AGY Mobile");
+                    }
+                    HttpURLConnection conn = openReleaseDownload(url);
                     try (InputStream in = conn.getInputStream(); FileOutputStream out = new FileOutputStream(apk)) {
+                        long total = conn.getContentLengthLong();
                         byte[] buf = new byte[16384];
                         long read = 0;
                         int lastPct = 1;
                         int n;
                         while ((n = in.read(buf)) > 0) {
-                            out.write(buf, 0, n);
                             read += n;
+                            if (read > 80L * 1024 * 1024) throw new IllegalStateException("Plik APK jest zbyt duży");
+                            out.write(buf, 0, n);
                             if (total > 0) {
                                 int pct = (int) Math.min(99, (read * 100) / total);
                                 if (pct != lastPct) {
@@ -262,6 +311,14 @@ public class MainActivity extends AppCompatActivity {
                                 }
                             }
                         }
+                        if (total > 0 && read != total) throw new IllegalStateException("Niepełny plik APK");
+                    } finally {
+                        conn.disconnect();
+                    }
+                    PackageInfo update = getPackageManager().getPackageArchiveInfo(apk.getPath(), 0);
+                    if (update == null || !getPackageName().equals(update.packageName)
+                            || update.versionCode <= BuildConfig.VERSION_CODE) {
+                        throw new IllegalStateException("Plik APK nie zawiera nowszej wersji AGY Mobile");
                     }
 
                     evalJs("window.__updateProgress && window.__updateProgress(100, 'Uruchamianie instalatora...')");
@@ -273,18 +330,48 @@ public class MainActivity extends AppCompatActivity {
                 } catch (Exception e) {
                     String msg = (e.getMessage() != null) ? e.getMessage() : "Błąd pobierania";
                     evalJs("window.__updateError && window.__updateError(" + JSONObject.quote(msg) + ")");
+                } finally {
+                    downloadingUpdate.set(false);
                 }
             }).start();
         }
     }
 
+    private HttpURLConnection openReleaseDownload(URL url) throws java.io.IOException {
+        for (int redirects = 0; redirects < 4; redirects++) {
+            String host = url.getHost();
+            if (!"https".equals(url.getProtocol()) || url.getUserInfo() != null || url.getPort() != -1
+                    || (!"github.com".equalsIgnoreCase(host)
+                        && !"release-assets.githubusercontent.com".equalsIgnoreCase(host)
+                        && !"objects.githubusercontent.com".equalsIgnoreCase(host))) {
+                throw new java.io.IOException("Nieprawidłowe przekierowanie wydania AGY Mobile");
+            }
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setInstanceFollowRedirects(false);
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(30000);
+            int status = conn.getResponseCode();
+            if (status == HttpURLConnection.HTTP_OK) return conn;
+            String location = conn.getHeaderField("Location");
+            conn.disconnect();
+            if (status < 300 || status >= 400 || location == null) {
+                throw new java.io.IOException("Pobranie aktualizacji nie powiodło się (HTTP " + status + ")");
+            }
+            url = new URL(url, location);
+        }
+        throw new java.io.IOException("Zbyt wiele przekierowań podczas aktualizacji");
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQ_AUDIO && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startNativeSpeech(pendingLang);
-        } else if (requestCode == REQ_AUDIO) {
-            evalJs("window.__androidVoiceError && window.__androidVoiceError('Brak uprawnienia do mikrofonu')");
+        if (requestCode != REQ_AUDIO || pendingLang == null) return;
+        String lang = pendingLang;
+        pendingLang = null;
+        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startNativeSpeech(lang);
+        } else {
+            voiceError("Brak uprawnienia do mikrofonu");
         }
     }
 
@@ -322,7 +409,17 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        if (speechRecognizer != null) speechRecognizer.destroy();
+        pendingLang = null;
+        releaseSpeechRecognizer();
+        if (filePathCallback != null) {
+            filePathCallback.onReceiveValue(null);
+            filePathCallback = null;
+        }
+        if (webView != null) {
+            webView.removeJavascriptInterface("AndroidVoice");
+            webView.destroy();
+            webView = null;
+        }
         super.onDestroy();
     }
 }
