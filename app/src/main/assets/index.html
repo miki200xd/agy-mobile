@@ -621,6 +621,7 @@ const state = {
   attachments: [],
   streaming: false,
   manualStop: false,
+  sendSeq: 0,
   partners: readTeamSelection(),
   certain: settingsStorage.getItem('aiko_certain') === '1',
   messageQueue: [],
@@ -1110,6 +1111,7 @@ async function selectConversation(conv) {
     const data = await r.json();
     if (state.historyRequest !== request) return;
     state.messages = data.messages || [];
+    if (data.successor && data.successor !== conv.id) state.currentConvId = data.successor;
     renderMessages();
   } catch (e) {
     if (state.historyRequest === request && e.name !== 'AbortError') {
@@ -1872,6 +1874,7 @@ async function sendMessage(queuedItem = null) {
     autoGrow(box);
   }
   state.manualStop = false;
+  state.sendSeq++;
 
   state.messages.push({ role: 'user', text: text + (atts.length ? `\n[Załączniki: ${atts.length}]` : '') });
   const tStart = Date.now();
@@ -1895,7 +1898,7 @@ async function sendMessage(queuedItem = null) {
     }
   }, 150);
 
-  let completed = false;
+  let streamEnded = false;
   try {
     const resp = await fetch(apiBase() + '/api/chat', {
       method: 'POST',
@@ -1938,7 +1941,7 @@ async function sendMessage(queuedItem = null) {
       }
     }
     if (!ended) throw new Error('Strumień zakończył się przedwcześnie.');
-    completed = assistantMsg.succeeded === true;
+    streamEnded = true;
   } catch (e) {
     if (e.name === 'AbortError') {
       assistantMsg.footer = `Zatrzymano · ⏱ ${((Date.now() - tStart) / 1000).toFixed(1)}s`;
@@ -1958,7 +1961,8 @@ async function sendMessage(queuedItem = null) {
     setStreaming(false);
     loadConversations();
     refreshLimits();
-    if (!state.manualStop && completed) sendNextQueued();
+    // Kolejka rusza dalej także po odpowiedzi z ostrzeżeniem; wstrzymuje ją tylko Stop albo zerwane połączenie.
+    if (!state.manualStop && streamEnded) sendNextQueued();
   }
 }
 
@@ -2101,15 +2105,27 @@ bootstrap();
 // Live 2-way sync (Phone <-> Laptop) every 3s when idle
 let _syncTick = 0;
 setInterval(async () => {
-  if (state.streaming || state.historyRequest || document.hidden) return;
+  if (state.streaming || state.historyRequest || document.hidden || state.messageQueue.length) return;
   _syncTick++;
   if (_syncTick % 4 === 0) loadConversations();
   if (!state.currentConvId) return;
+  const seq = state.sendSeq;
+  const convId = state.currentConvId;
   try {
-    const r = await fetch(apiBase() + `/api/conversations/${encodeURIComponent(state.currentConvId)}/messages`, { headers: authHeaders() });
+    const r = await fetch(apiBase() + `/api/conversations/${encodeURIComponent(convId)}/messages`, { headers: authHeaders() });
     if (!r.ok) return;
     const data = await r.json();
+    // Odpowiedź z serwera mogła przyjść już po wysłaniu nowej wiadomości albo dla innej sesji: wtedy jest nieaktualna.
+    if (seq !== state.sendSeq || convId !== state.currentConvId || state.streaming || state.messageQueue.length) return;
+    // Inne urządzenie przeszło w Auto na nowy silnik: przełącz się na sesję, która kontynuuje tę rozmowę.
+    if (data.successor && data.successor !== convId) {
+      state.currentConvId = data.successor;
+      renderConvList();
+      return;
+    }
     const fresh = data.messages || [];
+    // Nie podmieniamy czatu na krótszą historię, bo znikałyby odpowiedzi widoczne na ekranie.
+    if (fresh.length < state.messages.length) return;
     const lastOld = state.messages[state.messages.length - 1];
     const lastNew = fresh[fresh.length - 1];
     const changed = fresh.length !== state.messages.length
