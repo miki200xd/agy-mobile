@@ -13,6 +13,7 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.view.Window;
+import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -45,6 +46,9 @@ import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity {
     private static final String APP_PAGE = "file:///android_asset/index.html";
+    // Tryb „Zdalnie”: ta sama aplikacja ze strony wac-telecom.pl/aiko/ (logowanie WordPress + PIN, tunel relay).
+    private static final String REMOTE_HOST = "wac-telecom.pl";
+    private static final String REMOTE_PAGE = "https://" + REMOTE_HOST + "/aiko/";
     private static final int REQ_AUDIO = 1001;
     private static final int REQ_FILE = 1002;
 
@@ -54,6 +58,54 @@ public class MainActivity extends AppCompatActivity {
     private Uri pendingCameraUri;
     private String pendingLang;
     private final AtomicBoolean downloadingUpdate = new AtomicBoolean();
+    // Adres bieżącej strony: mostek do funkcji telefonu sprawdza go przy każdym wywołaniu.
+    private volatile String currentUrl = APP_PAGE;
+    // Po ręcznym wyborze trybu aplikacja nie przełącza się już sama do końca uruchomienia.
+    private volatile boolean manualMode = false;
+
+    private static boolean isLocalPage(String url) {
+        return url != null && url.startsWith("file:///android_asset/");
+    }
+
+    private static boolean isRemoteAppPage(String url) {
+        if (url == null) return false;
+        Uri u = Uri.parse(url);
+        String path = u.getPath() == null ? "" : u.getPath();
+        return "https".equals(u.getScheme()) && REMOTE_HOST.equalsIgnoreCase(u.getHost()) && u.getPort() == -1
+                && (path.equals("/aiko") || path.equals("/aiko/") || "app".equals(u.getQueryParameter("aiko")));
+    }
+
+    private static boolean isRemoteSite(Uri u) {
+        return u != null && "https".equals(u.getScheme()) && REMOTE_HOST.equalsIgnoreCase(u.getHost());
+    }
+
+    /** Sprawdza w tle, czy laptop odpowiada w sieci domowej; jeśli nie, otwiera tryb zdalny. */
+    private void probeLaptopAndChooseMode() {
+        String base = getSharedPreferences("aiko_settings", MODE_PRIVATE).getString("agy_base_url", "");
+        if (base == null || base.trim().isEmpty()) return; // jeszcze nie skonfigurowano: zostaje ekran z QR
+        String url = base.trim();
+        if (!url.startsWith("http://") && !url.startsWith("https://")) url = "http://" + url;
+        final String probe = url.replaceAll("/+$", "") + "/api/info";
+        new Thread(() -> {
+            boolean reachable = false;
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(probe).openConnection();
+                conn.setConnectTimeout(1500);
+                conn.setReadTimeout(1500);
+                conn.getResponseCode(); // każda odpowiedź (też 401) znaczy, że laptop jest w tej sieci
+                reachable = true;
+            } catch (Exception ignored) {
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+            if (!reachable) {
+                runOnUiThread(() -> {
+                    if (!manualMode && webView != null && isLocalPage(currentUrl)) webView.loadUrl(REMOTE_PAGE);
+                });
+            }
+        }).start();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -75,11 +127,27 @@ public class MainActivity extends AppCompatActivity {
         s.setAllowUniversalAccessFromFileURLs(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
+        CookieManager.getInstance().setAcceptCookie(true); // logowanie WordPress w trybie zdalnym zostaje zapamiętane
+
         webView.addJavascriptInterface(new VoiceBridge(), "AndroidVoice");
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                currentUrl = url;
+                super.onPageStarted(view, url, favicon);
+            }
+
+            @Override
+            public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+                currentUrl = url;
+                super.doUpdateVisitedHistory(view, url, isReload);
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
+                // Strony wac-telecom.pl (logowanie WordPress i /aiko/) otwierają się w aplikacji.
+                if (request.isForMainFrame() && isRemoteSite(uri)) return false;
                 if (request.isForMainFrame() && request.hasGesture()
                         && ("https".equals(uri.getScheme()) || "http".equals(uri.getScheme()))) {
                     try {
@@ -132,6 +200,13 @@ public class MainActivity extends AppCompatActivity {
         });
 
         webView.loadUrl(APP_PAGE);
+        probeLaptopAndChooseMode();
+    }
+
+    @Override
+    protected void onPause() {
+        CookieManager.getInstance().flush();
+        super.onPause();
     }
 
     private void evalJs(String js) {
@@ -249,29 +324,63 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
+        // Ustawienia (w tym token laptopa) tylko dla strony wbudowanej w aplikację, nigdy dla strony internetowej.
+        private boolean fromLocal() {
+            return isLocalPage(currentUrl);
+        }
+
+        // Funkcje telefonu (dyktowanie, QR, aktualizacja, przełączanie trybu): strona w aplikacji albo /aiko/.
+        private boolean fromApp() {
+            String url = currentUrl;
+            return isLocalPage(url) || isRemoteAppPage(url);
+        }
+
         @JavascriptInterface
         public String getPref(String key) {
-            if (!isSettingsKey(key)) return null;
+            if (!fromLocal() || !isSettingsKey(key)) return null;
             return getSharedPreferences("aiko_settings", MODE_PRIVATE).getString(key, null);
         }
 
         @JavascriptInterface
         public void savePref(String key, String value) {
-            if (!isSettingsKey(key) || value == null) return;
+            if (!fromLocal() || !isSettingsKey(key) || value == null) return;
             getSharedPreferences("aiko_settings", MODE_PRIVATE).edit().putString(key, value).apply();
         }
+
+        @JavascriptInterface
+        public void openRemote() {
+            if (!fromApp()) return;
+            manualMode = true;
+            runOnUiThread(() -> { if (webView != null) webView.loadUrl(REMOTE_PAGE); });
+        }
+
+        @JavascriptInterface
+        public void openLocal() {
+            if (!fromApp()) return;
+            manualMode = true;
+            runOnUiThread(() -> { if (webView != null) webView.loadUrl(APP_PAGE); });
+        }
+
+        @JavascriptInterface
+        public boolean isRemote() {
+            return isRemoteAppPage(currentUrl);
+        }
+
         @JavascriptInterface
         public void startListening(String lang) {
+            if (!fromApp()) return;
             runOnUiThread(() -> startNativeSpeech((lang == null || lang.isEmpty()) ? "pl-PL" : lang));
         }
 
         @JavascriptInterface
         public void stopListening() {
+            if (!fromApp()) return;
             runOnUiThread(MainActivity.this::stopNativeSpeech);
         }
 
         @JavascriptInterface
         public void scanQr() {
+            if (!fromApp()) return;
             runOnUiThread(() -> {
                 try {
                     GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
@@ -307,7 +416,7 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public void installUpdate(String apkUrl) {
-            if (!downloadingUpdate.compareAndSet(false, true)) return;
+            if (!fromApp() || !downloadingUpdate.compareAndSet(false, true)) return;
             new Thread(() -> {
                 try {
                     evalJs("window.__updateProgress && window.__updateProgress(1, 'Pobieranie...')");

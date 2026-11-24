@@ -500,6 +500,7 @@
   <div class="modal-card">
     <h3>Połączenie z AIKO</h3>
     <button class="btn-primary" id="btnScanQr" onclick="startQrScan()" style="width:100%">📷 Skanuj kod QR z laptopa</button>
+    <button class="btn-secondary" id="btnRemoteMode" onclick="switchConnectionMode()" style="width:100%;display:none"></button>
     <div id="qrStatus" style="font-size:12px;color:var(--muted);display:none"></div>
     <div class="field">
       <label>Adres serwera (puste = ten sam adres; na APK wpisz np. http://100.x.y.z:8765)</label>
@@ -873,6 +874,7 @@ function openSettings() {
   document.getElementById('cfgToken').value = state.token;
   document.getElementById('cfgCwd').value = state.cwd;
   document.getElementById('cfgAutoSend').checked = state.autoSendVoice;
+  syncRemoteModeButton();
   document.getElementById('modal').classList.add('open');
 }
 function closeSettings() { document.getElementById('modal').classList.remove('open'); }
@@ -1379,11 +1381,26 @@ async function rateAutoAnswer(message, routeId, vote) {
   }
 }
 
+// Tryb połączenia w aplikacji AIKO: „W domu” (strona w aplikacji, bezpośrednio do laptopa w Wi-Fi)
+// albo „Zdalnie” (strona wac-telecom.pl/aiko/ przez skrzynkę relay). Przyciski widać tylko w aplikacji.
+function inAikoApp() { return !!(window.AndroidVoice && typeof window.AndroidVoice.openRemote === 'function'); }
+function isRelayPage() { return !!window.AIKO_RELAY; }
+function syncRemoteModeButton() {
+  const b = document.getElementById('btnRemoteMode');
+  if (!b) return;
+  b.style.display = inAikoApp() ? 'block' : 'none';
+  b.textContent = isRelayPage() ? '🏠 W domu (Wi-Fi, prosto do laptopa)' : '🌍 Zdalnie (poza domem, przez wac-telecom.pl)';
+}
+function switchConnectionMode() {
+  if (!inAikoApp()) return;
+  if (isRelayPage()) window.AndroidVoice.openLocal(); else window.AndroidVoice.openRemote();
+}
+
 function renderErrorBanner(msg) {
   const box = document.getElementById('messages');
   const d = document.createElement('div');
   d.style.cssText = 'background:rgba(224,82,82,0.15);border:1px solid var(--danger);padding:12px 14px;border-radius:12px;max-width:600px;margin:12px auto;font-size:13.5px;display:flex;flex-direction:column;gap:10px;';
-  d.innerHTML = `<div>${escapeHtml(msg)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-primary" onclick="startQrScan()">📷 Skanuj kod QR z laptopa</button><button class="btn-secondary" onclick="openSettings()">⚙ Wpisz ręcznie</button></div>`;
+  d.innerHTML = `<div>${escapeHtml(msg)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-primary" onclick="startQrScan()">📷 Skanuj kod QR z laptopa</button><button class="btn-secondary" onclick="openSettings()">⚙ Wpisz ręcznie</button>${inAikoApp() && !isRelayPage() ? '<button class="btn-primary" onclick="switchConnectionMode()">🌍 Połącz zdalnie</button>' : ''}</div>`;
   box.appendChild(d);
 }
 
